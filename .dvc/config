@@ -1,0 +1,6 @@
+[core]
+    remote = yacloud
+['remote "yacloud"']
+    url = s3://pres-rag-bucket/pres
+    endpointurl = https://storage.yandexcloud.net
+    region = ru-central1
