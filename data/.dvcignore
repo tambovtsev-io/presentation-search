@@ -1,0 +1,8 @@
+# Select only weird-slides dataset
+
+# ignore all folders in ./data/raw
+# only .gitkeep is left there.
+raw/*/
+# unignore weird-slides
+!raw/weird-slides
+
