@@ -9,9 +9,9 @@ from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.messages import HumanMessage
 from langchain.callbacks.manager import CallbackManagerForChainRun
-# Import batch processing utilities
-# from langchain.chains.batch import BatchedChain
-# from langchain.chains.transform import TransformChainMixin
+from langchain_core.output_parsers import StrOutputParser
+from langchain.pydantic_v1 import Extra
+
 import pdf2image
 
 from config.navigator import Navigator
@@ -102,3 +102,63 @@ class ImageLoaderChain(Chain):
         return {"image": image_base64}
 
 
+class VisionAnalysisChain(Chain):
+    """Single image analysis chain"""
+
+    @property
+    def input_keys(self) -> List[str]:
+        """Required input keys for the chain"""
+        return ["image"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        """Output keys provided by the chain"""
+        return ["analysis"]
+
+    def __init__(
+        self,
+        llm: ChatOpenAI,
+        prompt: str = "Describe this slide in detail",
+        **kwargs
+    ):
+        """Initialize the chain with vision capabilities
+
+        Args:
+            llm: Language model with vision capabilities (e.g. GPT-4V)
+            prompt: Custom prompt for slide analysis
+        """
+        super().__init__(**kwargs)
+
+        # Store components as instance variables without class-level declarations
+        self._llm = llm
+        self._prompt = prompt
+
+        self._vision_prompt_template = ChatPromptTemplate.from_messages([
+            ("human", [
+                {"type": "text", "text": "{prompt}"},
+                {
+                    "type": "image",
+                    "image_url": "data:image/png;base64,{image}"
+                }
+            ])
+        ])
+
+        self._chain = (
+            self._vision_prompt_template
+            | self._llm
+            | dict(analysis=StrOutputParser())
+        )
+
+    def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Process single image with the vision model
+
+        Args:
+            inputs: dict(image=<base64 incoded image>)
+
+        Returns:
+            dict(analysis=<textual analysis of image by the model>)
+        """
+        return self._chain.invoke({
+            "prompt": self._prompt,
+            "image": inputs["image"]
+        })
