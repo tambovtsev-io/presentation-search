@@ -41,7 +41,7 @@ class PDFLoaderChain(Chain):
 
 
 class PreprocessingChain(Chain):
-    """Chain for converting PDFs to images and resizing them"""
+    """Chain for converting PDFs to images"""
 
     navigator: Navigator = Navigator()
     img_size: tuple[int, int] = (1024, 768)
