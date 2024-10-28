@@ -155,13 +155,13 @@ class VisionAnalysisChain(Chain):
         Args:
             inputs: Dictionary containing:
                 - image: base64 encoded image string
-                - visual_prompt: Optional custom prompt used instead of defined in __init__
+                - vision_prompt: Optional custom prompt used instead of defined in __init__
 
         Returns:
             Dictionary with `analysis` - model's output
         """
         # Use custom prompt if provided, otherwise fall back to default
-        current_prompt = inputs.get("visual_prompt", self._prompt)
+        current_prompt = inputs.get("vision_prompt", self._prompt)
         return self._chain.invoke({
             "prompt": current_prompt,
             "image": inputs["image"]
