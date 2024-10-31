@@ -69,7 +69,7 @@ class PreprocessingChain(Chain):
             slide_paths = []
             for idx, image in enumerate(images):
                 # image.thumbnail(self.img_size, Image.Resampling.LANCZOS)
-                output_path = interim_path / f"{pdf_path.name}_slide_{idx+1:03d}.png"
+                output_path = interim_path / f"{pdf_path.name}_slide_{idx+1:03d}_dpi_{self.dpi}.png"
                 image.save(output_path, "PNG")
                 slide_paths.append(output_path)
 
