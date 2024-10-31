@@ -19,6 +19,7 @@ from PIL import Image
 from .chain_funcs import get_param_or_default
 
 from config.navigator import Navigator
+from .pdf2image import page2image
 
 logger = logging.getLogger(__name__)
 
@@ -107,14 +108,8 @@ class Pdf2ImageChain(Chain):
 
             # Convert pdf page to pixmap
             dpi = get_param_or_default(inputs, "dpi", self._default_dpi)
-            pix = page.get_pixmap(dpi=dpi)
-
-            # Convert pixmap to PIL Image
-            img = Image.frombytes(
-                "RGB",
-                (pix.width, pix.height),
-                pix.samples
-            )
+            
+            img = page2image(page, dpi)
 
             if self._save_images or self._paths_only:
                 saved_path = self._save_image(img, pdf_path.stem, page_num)
