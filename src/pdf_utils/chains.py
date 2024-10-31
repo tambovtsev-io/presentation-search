@@ -23,6 +23,51 @@ from .pdf2image import page2image
 
 logger = logging.getLogger(__name__)
 
+class Page2ImageChain(Chain):
+    """Chain for converting PyMuPDF page to PIL Image"""
+
+    def __init__(self, default_dpi: int = 72, **kwargs):
+        """Initialize Page to Image conversion chain
+
+        Args:
+            default_dpi: Default resolution for PDF rendering
+        """
+        super().__init__(**kwargs)
+        self._default_dpi = default_dpi
+
+    @property
+    def input_keys(self) -> List[str]:
+        """Required input keys"""
+        return ["page"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        """Output keys provided by the chain"""
+        return ["image"]
+
+    def _call(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[CallbackManagerForChainRun] = None
+    ) -> Dict[str, Any]:
+        """Convert PyMuPDF page to PIL Image
+
+        Args:
+            inputs: Dictionary containing:
+                - page: PyMuPDF page object
+                - dpi: Optional DPI value for rendering
+            run_manager: Callback manager
+
+        Returns:
+            Dictionary with PIL Image
+        """
+        page: fitz.Page = inputs["page"]
+        dpi = get_param_or_default(inputs, "dpi", self._default_dpi)
+
+        image = page2image(page, dpi)
+
+        return dict(image=image)
+
 
 class Pdf2ImageChain(Chain):
     """Chain for converting PDF pages to PIL Images using PyMuPDF"""
