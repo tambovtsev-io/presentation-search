@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Sequence
+from typing import List, Dict, Any, Sequence, Optional
 from pathlib import Path
 import logging
 import base64
@@ -10,13 +10,165 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.schema.messages import HumanMessage
 from langchain.callbacks.manager import CallbackManagerForChainRun
 from langchain_core.output_parsers import StrOutputParser
-from langchain.pydantic_v1 import Extra
 
 import pdf2image
+import fitz
+
+from io import BytesIO
+from PIL import Image
+from .chain_funcs import get_param_or_default
 
 from config.navigator import Navigator
 
 logger = logging.getLogger(__name__)
+
+
+class Pdf2ImageChain(Chain):
+    """Chain for converting PDF pages to PIL Images using PyMuPDF"""
+
+    navigator: Navigator = Navigator()
+
+    def __init__(
+        self,
+        default_dpi: int = 72,
+        save_images: bool = False,
+        paths_only: bool = False,
+        **kwargs
+    ):
+        """Initialize PDF to Image conversion chain
+
+        Args:
+            navigator: Project paths navigator
+            dpi: Resolution for PDF rendering
+            save_images: Whether to save images to interim folder
+            paths_only: When true, save images and return only paths to them
+        """
+        super().__init__(**kwargs)
+        self._default_dpi = default_dpi
+        self._save_images = save_images
+        self._paths_only = paths_only
+
+    @property
+    def input_keys(self) -> List[str]:
+        return ["pdf_path"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        return ["images", "image_paths"]
+
+    def _save_image(
+        self,
+        image: Image.Image,
+        presentation_name: str,
+        page_idx: int
+    ) -> Path:
+        """Save PIL image to interim folder with standardized naming
+
+        Args:
+            image: PIL Image to save
+            presentation_name: Name of the presentation (without extension)
+            page_idx: Zero-based page number
+
+        Returns:
+            Path to saved image
+        """
+        interim_path = self.navigator.get_interim_path(presentation_name)
+        output_path = interim_path / f"{presentation_name}_page_{page_idx:03d}_dpi_{self.dpi}.png"
+        image.save(output_path, "PNG")
+        return output_path
+
+    def _call(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[CallbackManagerForChainRun] = None
+    ) -> Dict[str, Any]:
+        """Convert PDF pages to PIL Images
+
+        Args:
+            inputs: Dictionary with pdf_path key
+            run_manager: Callback manager
+
+        Returns:
+            Dictionary with list of PIL Images
+        """
+        pdf_path = Path(inputs["pdf_path"])
+        images = []
+        saved_paths = []
+
+        # Open PDF document
+        pdf_document = fitz.open(pdf_path)
+
+        # Convert selected or all pages
+        selected_pages = get_param_or_default(inputs, "selected_pages", range(len(pdf_document)))
+
+        for page_num in selected_pages:
+            # Select pdf page
+            page = pdf_document[page_num]
+
+            # Convert pdf page to pixmap
+            dpi = get_param_or_default(inputs, "dpi", self._default_dpi)
+            pix = page.get_pixmap(dpi=dpi)
+
+            # Convert pixmap to PIL Image
+            img = Image.frombytes(
+                "RGB",
+                (pix.width, pix.height),
+                pix.samples
+            )
+
+            if self._save_images or self._paths_only:
+                saved_path = self._save_image(img, pdf_path.stem, page_num)
+                saved_paths.append(saved_path)
+
+            images.append(img)
+
+        pdf_document.close()
+
+        # Form the output dict
+        result = dict(images=None, image_paths=None)
+        if not self._paths_only:
+            result["images"] = images
+        if self._save_images or self._paths_only:
+            result["image_paths"] = saved_paths
+
+        return result
+
+
+class ImageEncodeChain(Chain):
+    """Chain for encoding PIL Images to base64 strings"""
+
+    @property
+    def input_keys(self) -> List[str]:
+        return ["image"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        return ["image_encoded"]
+
+    def _call(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[CallbackManagerForChainRun] = None
+    ) -> Dict[str, Any]:
+        """Encode PIL Image to base64 string
+
+        Args:
+            inputs: Dictionary with PIL Image
+            run_manager: Callback manager
+
+        Returns:
+            Dictionary with base64 encoded image string
+        """
+        image: Image.Image = inputs["image"]
+
+        # Save image to bytes buffer
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        # Encode to base64
+        encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+        return dict(image_encoded=encoded)
 
 class PDFLoaderChain(Chain):
     """Chain for loading PDF paths from weird-slides directory"""
