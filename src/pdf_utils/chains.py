@@ -307,7 +307,7 @@ class VisionAnalysisChain(Chain):
 
     def __init__(
         self,
-        llm: ChatOpenAI,
+        llm: Optional[ChatOpenAI] = None,
         prompt: str = "Describe this slide in detail",
         **kwargs
     ):
