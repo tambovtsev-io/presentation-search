@@ -265,7 +265,7 @@ class VisionAnalysisChain(Chain):
     @property
     def output_keys(self) -> List[str]:
         """Output keys provided by the chain"""
-        return ["analysis"]
+        return ["llm_output"]
 
     def __init__(
         self,
@@ -290,7 +290,7 @@ class VisionAnalysisChain(Chain):
                 {"type": "text", "text": "{prompt}"},
                 {
                     "type": "image",
-                    "image_url": "data:image/png;base64,{image}"
+                    "image_url": "data:image/png;base64,{image_base64}"
                 }
             ])
         ])
@@ -298,7 +298,7 @@ class VisionAnalysisChain(Chain):
         self._chain = (
             self._vision_prompt_template
             | self._llm
-            | dict(analysis=StrOutputParser())
+            | dict(llm_output=StrOutputParser())
         )
 
     def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -312,14 +312,9 @@ class VisionAnalysisChain(Chain):
         Returns:
             Dictionary with `analysis` - model's output
         """
-        # Use custom prompt if provided, otherwise fall back to default
-        current_prompt = inputs.get("vision_prompt", self._prompt)
-
-        # In case there is key "vision_prompt" set to None
-        if current_prompt is None:
-            current_prompt = self._prompt
+        current_prompt = get_param_or_default(inputs, "vision_prompt", self._prompt)
 
         return self._chain.invoke({
             "prompt": current_prompt,
-            "image": inputs["image"]
+            "image_base64": inputs["image_encoded"]
         })
