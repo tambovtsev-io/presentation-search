@@ -162,6 +162,11 @@ class VisionAnalysisChain(Chain):
         """
         # Use custom prompt if provided, otherwise fall back to default
         current_prompt = inputs.get("vision_prompt", self._prompt)
+
+        # In case there is key "vision_prompt" set to None
+        if current_prompt is None:
+            current_prompt = self._prompt
+
         return self._chain.invoke({
             "prompt": current_prompt,
             "image": inputs["image"]
