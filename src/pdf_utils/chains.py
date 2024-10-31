@@ -4,10 +4,8 @@ import logging
 import base64
 
 from langchain.chains.base import Chain
-from langchain.chains import TransformChain
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
-from langchain.schema.messages import HumanMessage
 from langchain.callbacks.manager import CallbackManagerForChainRun
 from langchain_core.output_parsers import StrOutputParser
 
