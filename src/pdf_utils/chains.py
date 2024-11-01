@@ -16,7 +16,7 @@ from io import BytesIO
 from PIL import Image
 from .chain_funcs import get_param_or_default
 
-from config.navigator import Navigator
+from src.config import Navigator
 from .pdf2image import page2image
 
 logger = logging.getLogger(__name__)
