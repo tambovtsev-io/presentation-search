@@ -1,7 +1,22 @@
 from textwrap import TextWrapper
 
 class MultilineWrapper(TextWrapper):
-    """Folded output"""
+    """
+    Corrects the behavior of textwrap.TextWrapper.
+    Problem:
+        Original TextWrapper does 2 things:
+        - splits text into chunks of specified length
+        - makes sure that words are not split in half 
+        It treats newlines as regular characters. 
+        
+        This breaks markdown lists. 
+    
+    Solution:
+        - split text by newlines
+        - wrap each chunk separately
+        - join everything back with newlines
+          
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
