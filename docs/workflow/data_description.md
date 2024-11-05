@@ -85,7 +85,7 @@
 
 
 ### 10 сложных слайдов
-- `2.Kolmogorov Arnold Networks_Павел Плюснин_вер.2_slides-14`\
+- `2.Kolmogorov Arnold Networks_Павел Плюснин_вер.2_slides-14`
   - Сложная картинка со схемой нейросетей
   - Latex матрица
 - `Accenture x UN_GenAI For Global Goals_2024 (39 pgs)_slides-10-12`
