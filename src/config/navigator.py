@@ -10,10 +10,15 @@ class Navigator:
 
     def __post_init__(self):
         """Initialize all project paths"""
+        # Data Paths
         self.data = self.root / "data"
         self.raw = self.data / "raw"
         self.interim = self.data / "interim"
         self.processed = self.data / "processed"
+
+        # src paths
+        self.src = self.root / "src"
+        self.prompts = self.src / "prompts"
 
         # Create directories if they don't exist
         for path in [self.interim, self.processed]:
