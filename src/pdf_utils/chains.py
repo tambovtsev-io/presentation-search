@@ -21,6 +21,45 @@ from src.pdf_utils.pdf2image import page2image
 
 logger = logging.getLogger(__name__)
 
+
+class FindPdfChain(Chain):
+    """Chain for finding PDF file given substring of a filename"""
+
+    navigator: Navigator = Navigator()
+
+    @property
+    def input_keys(self) -> List[str]:
+        """Required input keys"""
+        return ["title"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        """Output keys provided by the chain"""
+        return ["pdf_path"]
+
+    def _call(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[CallbackManagerForChainRun] = None
+    ) -> Dict[str, Any]:
+        """Find PDF file by substring in filename
+
+        Args:
+            inputs: Dictionary containing:
+                - title: Substring to search in PDF filenames
+            run_manager: Callback manager
+
+        Returns:
+            Dictionary with found PDF path. If not found, pdf_path will be None
+
+        Raises:
+            ValueError: If multiple PDFs match the substring
+        """
+        title: str = inputs["title"]
+        pdf_path = self.navigator.find_file_by_substr(title)
+        return dict(pdf_path=pdf_path)
+
+
 class LoadPageChain(Chain):
     """Chain for loading PyMuPDF page"""
 
@@ -189,7 +228,7 @@ class Pdf2ImageChain(Chain):
 
             # Convert pdf page to pixmap
             dpi = get_param_or_default(inputs, "dpi", self._default_dpi)
-            
+
             img = page2image(page, dpi)
 
             if self._save_images or self._paths_only:
