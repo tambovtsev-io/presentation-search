@@ -1,6 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
 
 @dataclass
 class Navigator:
@@ -34,7 +34,8 @@ class Navigator:
             substr: str,
             extension: Optional[str] = None,
             base_dir: Optional[Path] = None,
-        ) -> List[Path]:
+            return_first: bool = True
+        ) -> Optional[Union[List[Path], Path]] :
         """
         Find file by substring.
 
@@ -54,10 +55,19 @@ class Navigator:
         if base_dir is None:
            base_dir = self.data
 
-        results = list(base_dir.rglob(search_pattern))
+        # sort by length so that the shortest is the first
+        # thus we avoid picking modified file
+        results = list(sorted(
+            base_dir.rglob(search_pattern),
+            key=lambda path: len(path.name),
+        ))
+
         if extension is not None:
             results = [path for path in results if path.name.endswith(extension)]
         if len(results) > 1:
             print(f"Found {len(results)} matches for {substr}")
 
-        return results
+        if not results:
+            return None
+
+        return results[0] if return_first else results
