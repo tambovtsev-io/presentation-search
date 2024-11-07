@@ -144,6 +144,113 @@ class Page2ImageChain(Chain):
         return dict(image=image)
 
 
+class ImageEncodeChain(Chain):
+    """Chain for encoding PIL Images to base64 strings"""
+
+    @property
+    def input_keys(self) -> List[str]:
+        return ["image"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        return ["image_encoded"]
+
+    def _call(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[CallbackManagerForChainRun] = None
+    ) -> Dict[str, Any]:
+        """Encode PIL Image to base64 string
+
+        Args:
+            inputs: Dictionary with PIL Image
+            run_manager: Callback manager
+
+        Returns:
+            Dictionary with base64 encoded image string
+        """
+        image: Image.Image = inputs["image"]
+
+        # Save image to bytes buffer
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        # Encode to base64
+        encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+        return dict(image_encoded=encoded)
+
+
+class VisionAnalysisChain(Chain):
+    """Single image analysis chain"""
+
+    @property
+    def input_keys(self) -> List[str]:
+        """Required input keys for the chain"""
+        return ["image_encoded"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        """Output keys provided by the chain"""
+        return ["llm_output"]
+
+    def __init__(
+        self,
+        llm: Optional[ChatOpenAI] = None,
+        prompt: str = "Describe this slide in detail",
+        **kwargs
+    ):
+        """Initialize the chain with vision capabilities
+
+        Args:
+            llm: Language model with vision capabilities (e.g. GPT-4V)
+            prompt: Custom prompt for slide analysis
+        """
+        super().__init__(**kwargs)
+
+        # Store components as instance variables without class-level declarations
+        self._llm = llm
+        self._prompt = prompt
+
+        self._vision_prompt_template = ChatPromptTemplate.from_messages([
+            ("human", [
+                {"type": "text", "text": "{prompt}"},
+                {
+                    "type": "image",
+                    "image_url": "data:image/png;base64,{image_base64}"
+                }
+            ])
+        ])
+
+        self._chain = (
+            self._vision_prompt_template
+            | self._llm
+            | dict(llm_output=StrOutputParser())
+        )
+
+    def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Process single image with the vision model
+
+        Args:
+            inputs: Dictionary containing:
+                - image: base64 encoded image string
+                - vision_prompt: Optional custom prompt used instead of defined in __init__
+
+        Returns:
+            Dictionary with `analysis` - model's output
+        """
+        current_prompt = get_param_or_default(inputs, "vision_prompt", self._prompt)
+
+        return self._chain.invoke({
+            "prompt": current_prompt,
+            "image_base64": inputs["image_encoded"]
+        })
+
+
+# Further chains are for batched processing.
+# I created them during the first runs.
+# Probably should remove them but will keep for later
+
 class Pdf2ImageChain(Chain):
     """Chain for converting PDF pages to PIL Images using PyMuPDF"""
 
@@ -249,42 +356,6 @@ class Pdf2ImageChain(Chain):
         return result
 
 
-class ImageEncodeChain(Chain):
-    """Chain for encoding PIL Images to base64 strings"""
-
-    @property
-    def input_keys(self) -> List[str]:
-        return ["image"]
-
-    @property
-    def output_keys(self) -> List[str]:
-        return ["image_encoded"]
-
-    def _call(
-        self,
-        inputs: Dict[str, Any],
-        run_manager: Optional[CallbackManagerForChainRun] = None
-    ) -> Dict[str, Any]:
-        """Encode PIL Image to base64 string
-
-        Args:
-            inputs: Dictionary with PIL Image
-            run_manager: Callback manager
-
-        Returns:
-            Dictionary with base64 encoded image string
-        """
-        image: Image.Image = inputs["image"]
-
-        # Save image to bytes buffer
-        buffer = BytesIO()
-        image.save(buffer, format="PNG")
-
-        # Encode to base64
-        encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-        return dict(image_encoded=encoded)
-
 class PDFLoaderChain(Chain):
     """Chain for loading PDF paths from weird-slides directory"""
 
@@ -369,67 +440,3 @@ class ImageLoaderChain(Chain):
         return {"image": image_base64}
 
 
-class VisionAnalysisChain(Chain):
-    """Single image analysis chain"""
-
-    @property
-    def input_keys(self) -> List[str]:
-        """Required input keys for the chain"""
-        return ["image_encoded"]
-
-    @property
-    def output_keys(self) -> List[str]:
-        """Output keys provided by the chain"""
-        return ["llm_output"]
-
-    def __init__(
-        self,
-        llm: Optional[ChatOpenAI] = None,
-        prompt: str = "Describe this slide in detail",
-        **kwargs
-    ):
-        """Initialize the chain with vision capabilities
-
-        Args:
-            llm: Language model with vision capabilities (e.g. GPT-4V)
-            prompt: Custom prompt for slide analysis
-        """
-        super().__init__(**kwargs)
-
-        # Store components as instance variables without class-level declarations
-        self._llm = llm
-        self._prompt = prompt
-
-        self._vision_prompt_template = ChatPromptTemplate.from_messages([
-            ("human", [
-                {"type": "text", "text": "{prompt}"},
-                {
-                    "type": "image",
-                    "image_url": "data:image/png;base64,{image_base64}"
-                }
-            ])
-        ])
-
-        self._chain = (
-            self._vision_prompt_template
-            | self._llm
-            | dict(llm_output=StrOutputParser())
-        )
-
-    def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Process single image with the vision model
-
-        Args:
-            inputs: Dictionary containing:
-                - image: base64 encoded image string
-                - vision_prompt: Optional custom prompt used instead of defined in __init__
-
-        Returns:
-            Dictionary with `analysis` - model's output
-        """
-        current_prompt = get_param_or_default(inputs, "vision_prompt", self._prompt)
-
-        return self._chain.invoke({
-            "prompt": current_prompt,
-            "image_base64": inputs["image_encoded"]
-        })
