@@ -14,10 +14,10 @@ import fitz
 
 from io import BytesIO
 from PIL import Image
-from .chain_funcs import get_param_or_default
+from src.pdf_utils.chain_funcs import get_param_or_default
 
 from src.config import Navigator
-from .pdf2image import page2image
+from src.pdf_utils.pdf2image import page2image
 
 logger = logging.getLogger(__name__)
 
