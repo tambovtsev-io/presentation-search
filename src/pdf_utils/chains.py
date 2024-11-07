@@ -21,6 +21,44 @@ from .pdf2image import page2image
 
 logger = logging.getLogger(__name__)
 
+class LoadPageChain(Chain):
+    """Chain for loading PyMuPDF page"""
+
+    @property
+    def input_keys(self) -> List[str]:
+        """Required input keys"""
+        return ["pdf_path", "page_num"]
+
+    @property
+    def output_keys(self) -> List[str]:
+        """Output keys provided by the chain"""
+        return ["page"]
+
+    def _call(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[CallbackManagerForChainRun] = None
+    ) -> Dict[str, Any]:
+        """Load PyMuPDF page
+
+        Args:
+            inputs: Dictionary containing:
+                - pdf_path: Path to PDF file
+                - page_num: Page number to load
+            run_manager: Callback manager
+
+        Returns:
+            Dictionary with PyMuPDF page
+        """
+        pdf_path: Path = inputs["pdf_path"]
+        page_num: int = inputs["page_num"]
+
+        pdf_file = fitz.open(pdf_path)
+        page = pdf_file[page_num]
+
+        return dict(page=page)
+
+
 class Page2ImageChain(Chain):
     """Chain for converting PyMuPDF page to PIL Image"""
 
