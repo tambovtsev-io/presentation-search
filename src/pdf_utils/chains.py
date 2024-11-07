@@ -336,7 +336,7 @@ class VisionAnalysisChain(Chain):
     @property
     def input_keys(self) -> List[str]:
         """Required input keys for the chain"""
-        return ["image"]
+        return ["image_encoded"]
 
     @property
     def output_keys(self) -> List[str]:
