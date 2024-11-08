@@ -2,6 +2,7 @@ import os
 from typing import Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.base import BaseLanguageModel
+from src.testing_utils.echo_llm import EchoLLM
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -34,3 +35,6 @@ class ModelConfig:
             api_key=api_key,
             temperature=temperature
         )
+
+    def load_echo_llm(self) -> EchoLLM:
+        return EchoLLM()
