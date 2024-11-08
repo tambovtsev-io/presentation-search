@@ -60,12 +60,19 @@ class Navigator:
         if base_dir is None:
            base_dir = self.data
 
+        # find results matching pattern
+        results = base_dir.rglob(search_pattern)
+
+        # remove directories from the results
+        results = [path for path in results if path.is_file()]
+
         # sort by length so that the shortest is the first
         # thus we avoid picking modified file
         results = list(sorted(
-            base_dir.rglob(search_pattern),
+            results,
             key=lambda path: len(path.name),
         ))
+
 
         if extension is not None:
             results = [path for path in results if path.name.endswith(extension)]
