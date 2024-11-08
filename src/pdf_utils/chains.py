@@ -1,3 +1,4 @@
+from operator import itemgetter
 from typing import List, Dict, Any, Sequence, Optional
 from pathlib import Path
 import logging
@@ -192,7 +193,7 @@ class VisionAnalysisChain(Chain):
     @property
     def output_keys(self) -> List[str]:
         """Output keys provided by the chain"""
-        return ["llm_output"]
+        return ["vision_prompt", "llm_output"]
 
     def __init__(
         self,
@@ -240,11 +241,12 @@ class VisionAnalysisChain(Chain):
             Dictionary with `analysis` - model's output
         """
         current_prompt = get_param_or_default(inputs, "vision_prompt", self._prompt)
-
-        return self._chain.invoke({
+        out = self._chain.invoke({
             "prompt": current_prompt,
             "image_base64": inputs["image_encoded"]
         })
+        out["vision_prompt"] = current_prompt
+        return out
 
 
 # Further chains are for batched processing.
