@@ -34,6 +34,7 @@ class PresentationAnalysis(BaseModel):
     """Container for presentation analysis results"""
     name: str
     path: Path
+    vision_prompt: str
     metadata: Dict = Field(default_factory=dict)
     slides: List[SlideAnalysis] = Field(default_factory=list)
     timestamp: str = Field(
@@ -155,6 +156,7 @@ class PresentationPipeline(Chain):
             base_path: Base path for storing analysis results
         """
         super().__init__(**kwargs)
+        self._vision_prompt = vision_prompt
         self._slide_pipeline = SingleSlidePipeline(
             llm=llm,
             vision_prompt=vision_prompt,
@@ -252,7 +254,11 @@ class PresentationPipeline(Chain):
         presentation = (
             PresentationAnalysis.load(latest_analysis)
             if latest_analysis
-            else PresentationAnalysis(name=pdf_path.stem, path=pdf_path)
+            else PresentationAnalysis(
+                name=pdf_path.stem,
+                path=pdf_path,
+                vision_prompt=self._vision_prompt
+            )
         )
 
         # Get set of already processed pages
