@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class SlideAnalysis(BaseModel):
     """Container for slide analysis results"""
     page_num: int
-    vision_prompt: str
+    vision_prompt: Optional[str]
     content: str
 
 
@@ -227,7 +227,9 @@ class PresentationPipeline(Chain):
                 "pdf_path": pdf_path,
                 "page_num": page_num
             })
-            return result["slide_analysis"]
+            slide_analysis = result["slide_analysis"]
+            slide_analysis["vision_prompt"] = None
+            return slide_analysis
         except Exception as e:
             logger.error(f"Failed to process slide {page_num}: {str(e)}")
             return None
