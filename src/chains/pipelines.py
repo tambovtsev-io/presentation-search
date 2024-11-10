@@ -66,7 +66,7 @@ class SingleSlidePipeline(Chain):
         self,
         llm: Optional[ChatOpenAI] = None,
         vision_prompt: str = "Describe this slide in detail",
-        dpi: int = 75,
+        dpi: int = 72,
         **kwargs
     ):
         """Initialize pipeline for single slide processing
@@ -130,7 +130,7 @@ class PresentationPipeline(Chain):
         self,
         llm: Optional[ChatOpenAI] = None,
         vision_prompt: str = "Describe this slide in detail",
-        dpi: int = 75,
+        dpi: int = 72,
         base_path: Optional[Path] = None,
         save_steps: bool = True,
         save_final: bool = True,
@@ -289,7 +289,7 @@ def process_presentation(
     pdf_path: Path,
     llm: Optional[ChatOpenAI] = None,
     vision_prompt: str = "Describe this slide in detail",
-    dpi: int = 300,
+    dpi: int = 144,
     base_path: Optional[Path] = None
 ) -> PresentationAnalysis:
     """Convenience function for presentation processing
