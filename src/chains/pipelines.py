@@ -143,6 +143,7 @@ class PresentationPipeline(Chain):
         vision_prompt: str = "Describe this slide in detail",
         dpi: int = 72,
         base_path: Optional[Path] = None,
+        fresh_start: bool = True,
         save_steps: bool = True,
         save_final: bool = True,
         **kwargs
@@ -163,6 +164,7 @@ class PresentationPipeline(Chain):
             dpi=dpi
         )
         self._base_path = base_path
+        self._fresh_start = fresh_start
         self._save_steps = save_steps
         self._save_final = save_final
 
@@ -255,7 +257,7 @@ class PresentationPipeline(Chain):
         # Try to load existing results
         presentation = (
             PresentationAnalysis.load(latest_analysis)
-            if latest_analysis
+            if latest_analysis and not self._fresh_start
             else PresentationAnalysis(
                 name=pdf_path.stem,
                 path=pdf_path,
