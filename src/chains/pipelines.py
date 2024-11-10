@@ -174,17 +174,17 @@ class PresentationPipeline(Chain):
         """Output keys provided by the chain"""
         return ["presentation"]
 
-    def _get_timestamped_filename(self, prefix: str) -> str:
+    def _get_timestamped_filename(self, fname: str) -> str:
         """Generate timestamped filename for analysis results
 
         Args:
             prefix: Prefix for the filename (usually presentation name)
 
         Returns:
-            String with format: prefix_YYYYMMDD_HHMMSS.json
+            String with format: fname_YYYYMMDD-HHMMSS.json
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{prefix}_{timestamp}.json"
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return f"{fname}_{timestamp}.json"
 
     def _get_interim_save_path(self, pdf_path: Path) -> Path:
         """Get path for saving interim results"""
