@@ -29,6 +29,10 @@ class SlideAnalysis(BaseModel):
     vision_prompt: Optional[str]
     content: str
 
+    def reset_vision_prompt(self):
+        """Reset vision prompt"""
+        self.vision_prompt = None
+
 
 class PresentationAnalysis(BaseModel):
     """Container for presentation analysis results"""
@@ -230,7 +234,7 @@ class PresentationPipeline(Chain):
                 "page_num": page_num
             })
             slide_analysis = result["slide_analysis"]
-            slide_analysis["vision_prompt"] = None
+            slide_analysis.reset_vision_prompt()
             return slide_analysis
         except Exception as e:
             logger.error(f"Failed to process slide {page_num}: {str(e)}")
