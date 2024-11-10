@@ -303,12 +303,34 @@ class PresentationPipeline(Chain):
         return dict(presentation=presentation)
 
 
+def process_slide(
+    pdf_path: Path,
+    page_num: int,
+    llm: Optional[ChatOpenAI] = None,
+    vision_prompt: str = "Describe this slide in detail",
+    dpi: int = 144,
+    return_steps: bool = False
+) -> Union[SlideAnalysis, Dict[str, Any]]:
+    """Convenience function for single slide processing"""
+    pipeline = SingleSlidePipeline(
+        llm=llm,
+        vision_prompt=vision_prompt,
+        dpi=dpi,
+        return_steps=return_steps
+    )
+    return pipeline.invoke({
+        "pdf_path": pdf_path,
+        "page_num": page_num
+    })
+
+
 def process_presentation(
     pdf_path: Path,
     llm: Optional[ChatOpenAI] = None,
     vision_prompt: str = "Describe this slide in detail",
     dpi: int = 144,
-    base_path: Optional[Path] = None
+    base_path: Optional[Path] = None,
+    return_steps: bool = False
 ) -> PresentationAnalysis:
     """Convenience function for presentation processing
 
@@ -328,4 +350,5 @@ def process_presentation(
         dpi=dpi,
         base_path=base_path
     )
-    return pipeline.invoke({"pdf_path": pdf_path})["presentation"]
+    out = pipeline.invoke({"pdf_path": pdf_path})
+    return out["presentation"]
