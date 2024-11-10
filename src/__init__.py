@@ -3,7 +3,8 @@ from src.config import (
     Config,
     ModelConfig,
     Navigator,
-    MultilineWrapper
+    MultilineWrapper,
+    query_and_display,
 )
 
 from src.chains import (

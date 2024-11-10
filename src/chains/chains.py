@@ -17,7 +17,7 @@ from io import BytesIO
 from PIL import Image
 from src.chains.chain_funcs import get_param_or_default
 
-from src.config import Navigator
+from src.config.navigator import Navigator
 from src.processing import page2image, image2base64
 
 logger = logging.getLogger(__name__)

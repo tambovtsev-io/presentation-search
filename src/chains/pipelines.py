@@ -17,7 +17,7 @@ from src.chains.chains import (
     VisionAnalysisChain
 )
 
-from src.config import Navigator
+from src.config.navigator import Navigator
 
 
 logger = logging.getLogger(__name__)

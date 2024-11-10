@@ -1,6 +1,9 @@
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional, Union
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Navigator:
@@ -78,7 +81,7 @@ class Navigator:
         if extension is not None:
             results = [path for path in results if path.name.endswith(extension)]
         if len(results) > 1:
-            print(f"Found {len(results)} matches for {substr}")
+            logger.info(f"Found {len(results)} matches for {substr}")
 
         if not results:
             return None
