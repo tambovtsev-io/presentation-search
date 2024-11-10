@@ -310,24 +310,47 @@ class PresentationPipeline(Chain):
 
 
 def process_slide(
-    pdf_path: Path,
+    path: Union[str, Path],
     page_num: int,
-    llm: Optional[ChatOpenAI] = None,
-    vision_prompt: str = "Describe this slide in detail",
-    dpi: int = 144,
+    llm: BaseLanguageModel,
+    vision_prompt: Optional[str] = None,
+    dpi: Optional[int] = None,
     return_steps: bool = False
-) -> Union[SlideAnalysis, Dict[str, Any]]:
-    """Convenience function for single slide processing"""
+) -> Dict[str, Any]:
+    """Query vision model and display results
+
+    Args:
+        path: PDF file path or substring of filename
+        page_num: Zero-based page number
+        llm: Language model with vision capabilities
+        vision_prompt: Optional custom prompt to use
+
+    Returns:
+        Dictionary with model outputs
+    """
+    # Find file if path is substring
+    nav = Navigator()
+    if isinstance(path, str):
+        pdf_path = nav.find_file_by_substr(path)
+        if pdf_path is None:
+            raise ValueError(f"No PDF found matching '{path}'")
+    else:
+        pdf_path = Path(path)
+
+    # Create slide processing pipeline
     pipeline = SingleSlidePipeline(
         llm=llm,
         vision_prompt=vision_prompt,
         dpi=dpi,
         return_steps=return_steps
     )
-    return pipeline.invoke({
+
+    # Process slide
+    result = pipeline.invoke({
         "pdf_path": pdf_path,
         "page_num": page_num
     })
+    return result
 
 
 def process_presentation(
@@ -335,8 +358,7 @@ def process_presentation(
     llm: Optional[ChatOpenAI] = None,
     vision_prompt: str = "Describe this slide in detail",
     dpi: int = 144,
-    base_path: Optional[Path] = None,
-    return_steps: bool = False
+    base_path: Optional[Path] = None
 ) -> PresentationAnalysis:
     """Convenience function for presentation processing
 
