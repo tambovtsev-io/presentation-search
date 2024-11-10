@@ -1,7 +1,6 @@
 from typing import Dict, Any, Optional, Union
 from langchain.chains.base import Chain
 import matplotlib.pyplot as plt
-from src.chains.pipelines import SingleSlidePipeline
 
 from textwrap import TextWrapper
 
@@ -60,7 +59,10 @@ def display_slide_analysis(
         display_image: Whether to display image with matplotlib
         figsize: Figure size for matplotlib display
     """
-    text_wrapper = MultilineWrapper(width=wrap_width)
+    text_wrapper = (
+        MultilineWrapper(width=wrap_width) if wrap_width
+        else MultilineWrapper()
+    )
 
     if display_image and "image" in chain_outputs:
         fig, ax = plt.subplots(figsize=figsize)
