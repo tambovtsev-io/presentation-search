@@ -10,7 +10,7 @@ import fitz
 from langchain_openai.chat_models import ChatOpenAI
 from langchain.chains.base import Chain
 
-from src.pdf_utils.chains import (
+from src.chains.chains import (
     LoadPageChain,
     Page2ImageChain,
     ImageEncodeChain,

@@ -15,10 +15,10 @@ import fitz
 
 from io import BytesIO
 from PIL import Image
-from src.pdf_utils.chain_funcs import get_param_or_default
+from src.chains.chain_funcs import get_param_or_default
 
 from src.config import Navigator
-from src.pdf_utils.pdf2image import page2image
+from src.processing import page2image, image2base64
 
 logger = logging.getLogger(__name__)
 
@@ -171,14 +171,7 @@ class ImageEncodeChain(Chain):
             Dictionary with base64 encoded image string
         """
         image: Image.Image = inputs["image"]
-
-        # Save image to bytes buffer
-        buffer = BytesIO()
-        image.save(buffer, format="PNG")
-
-        # Encode to base64
-        encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
+        encoded = image2base64(image)
         return dict(image_encoded=encoded)
 
 

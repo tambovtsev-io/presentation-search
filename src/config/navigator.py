@@ -18,7 +18,8 @@ class Navigator:
 
         # src paths
         self.src = self.root / "src"
-        self.prompts = self.src / "prompts"
+        self.chains = self.src / "chains"
+        self.prompts = self.chains / "prompts"
 
         # Create directories if they don't exist
         for path in [self.interim, self.processed]:
