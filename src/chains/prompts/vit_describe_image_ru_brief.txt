@@ -18,6 +18,7 @@ Describe all text elements present, including but not limited to:
 - Lists
 - Captions
 - Labels
+Note: Describe text styling (color, font, size) only when it serves a specific purpose (e.g., emphasis, hierarchy, categorization) and explain its significance. For multilingual elements, specify the languages used and their context.
 
 # Visual Elements
 Provide detailed descriptions of all visual components present on the slide. When multiple visual elements are present, describe them in the following order:
@@ -30,6 +31,13 @@ For each visual element, describe:
 - Its location on the slide
 - Its relationship to other elements
 - Key details that contribute to the slide's message
+
+For charts and graphs, additionally describe:
+- All data labels and their positioning
+- Annotations and callouts
+- Scale markers and units
+- Any highlighting or special marking of specific data points
+- Legend entries and their relationship to the data
 
 Visual elements may include, but are not limited to:
 - Images (photos, illustrations, icons)
@@ -65,7 +73,7 @@ Example of a Complex Data Slide:
 Заголовок: "Потрясения последних лет уже кардинально изменили мир и повлияют на энергетические рынки будущего"
 Подзаголовок: "Зависимость цепочек поставок и инвестиций в энергетике от геополитических событий"
 
-Текстовые блоки в правой части:
+Текстовые блоки в правой части (на черном фоне, что подчеркивает контраст между двумя описываемыми мирами):
 1. "Мир, каким мы его знали":
    - Экономия масштаба в производстве и ресурсоснабжении
    - Эффективные глобальные цепочки поставок
@@ -78,24 +86,29 @@ Example of a Complex Data Slide:
    - Расширение практики приоритизации дружественных отношений в энергетических сделках
    - Акцент на доступную и устойчивую энергию, как основу для создания долгосрочной ценности для общества
 
-Источник: Federal Reserve Bank of New York; Bloomberg; открытые источники
+Источник (на русском и английском языках): Federal Reserve Bank of New York; Bloomberg; открытые источники
 
 # Визуальные элементы
 Основной график:
 - Тип: Линейный график с двумя осями Y
 - Расположение: Левая часть слайда
 - Содержание:
-  - Черная линия: Индекс давления на глобальные цепочки поставок (левая ось Y, в процентах)
-  - Желтая линия: Глобальный индекс цен на энергию (правая ось Y, в долларах США)
-  - Ось X: Временная шкала 2000-2023
-- Отмеченные события на графике:
-  - Мировой экономический кризис
-  - «Арабская весна»
-  - BREXIT
-  - Начало торговой войны США и Китая
-  - Эпидемия COVID-19
-  - Начало СВО
-  - Палестинский конфликт
+  - Черная линия: Индекс давления на глобальные цепочки поставок (левая ось Y)
+    - Шкала: в процентах
+    - Подписи данных: ключевые точки отмечены значениями
+  - Желтая линия: Глобальный индекс цен на энергию (правая ось Y)
+    - Шкала: в долларах США
+    - Подписи данных: экстремумы отмечены значениями
+  - Ось X: Временная шкала 2000-2023 с шагом в 5 лет
+- Аннотации на графике:
+  - Мировой экономический кризис (вертикальная метка с подписью)
+  - «Арабская весна» (вертикальная метка с подписью)
+  - BREXIT (вертикальная метка с подписью)
+  - Начало торговой войны США и Китая (вертикальная метка с подписью)
+  - Эпидемия COVID-19 (вертикальная метка с подписью)
+  - Начало СВО (вертикальная метка с подписью)
+  - Палестинский конфликт (вертикальная метка с подписью)
+- Легенда расположена под графиком, включает расшифровку обеих линий
 
 Логотип:
 - "Яков и Партнёры" в нижнем правом углу
