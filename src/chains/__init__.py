@@ -1,11 +1,11 @@
-from pipelines import (
+from src.chains.pipelines import (
     SingleSlidePipeline,
     PresentationPipeline,
     PresentationAnalysis,
     SlideAnalysis
 )
 
-from chains import (
+from src.chains.chains import (
     LoadPageChain,
     Page2ImageChain,
     ImageEncodeChain,
