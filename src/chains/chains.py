@@ -61,7 +61,7 @@ class FindPdfChain(Chain):
         if isinstance(fpath_or_name, str):
             pdf_path = self.navigator.find_file_by_substr(fpath_or_name)
             if pdf_path is None:
-                raise ValueError(f"No PDF found matching '{path}'")
+                raise ValueError(f"No PDF found matching '{fpath_or_name}'")
         else:
             pdf_path = Path(fpath_or_name)
 
