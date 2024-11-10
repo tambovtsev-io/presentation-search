@@ -1,5 +1,5 @@
 from operator import itemgetter
-from typing import List, Dict, Any, Sequence, Optional
+from typing import List, Dict, Any, Sequence, Optional, Union
 from pathlib import Path
 import logging
 import base64
@@ -31,7 +31,7 @@ class FindPdfChain(Chain):
     @property
     def input_keys(self) -> List[str]:
         """Required input keys"""
-        return ["title"]
+        return ["pdf_path"]
 
     @property
     def output_keys(self) -> List[str]:
@@ -47,7 +47,7 @@ class FindPdfChain(Chain):
 
         Args:
             inputs: Dictionary containing:
-                - title: Substring to search in PDF filenames
+                - pdf_path: Substring to search in PDF filenames or actual path
             run_manager: Callback manager
 
         Returns:
@@ -56,8 +56,15 @@ class FindPdfChain(Chain):
         Raises:
             ValueError: If multiple PDFs match the substring
         """
-        title: str = inputs["title"]
-        pdf_path = self.navigator.find_file_by_substr(title)
+        fpath_or_name: Union[Path, str] = inputs["pdf_path"]
+
+        if isinstance(fpath_or_name, str):
+            pdf_path = self.navigator.find_file_by_substr(fpath_or_name)
+            if pdf_path is None:
+                raise ValueError(f"No PDF found matching '{path}'")
+        else:
+            pdf_path = Path(fpath_or_name)
+
         return dict(pdf_path=pdf_path)
 
 
@@ -433,5 +440,3 @@ class ImageLoaderChain(Chain):
         image_path = inputs["image_path"]
         image_base64 = self._encode_image(image_path)
         return {"image": image_base64}
-
-
