@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple, Union
 from pydantic import BaseModel, Field
 from pathlib import Path
 import json
@@ -67,6 +67,7 @@ class SingleSlidePipeline(Chain):
         llm: Optional[ChatOpenAI] = None,
         vision_prompt: str = "Describe this slide in detail",
         dpi: int = 72,
+        return_steps: bool = False,
         **kwargs
     ):
         """Initialize pipeline for single slide processing
@@ -75,16 +76,16 @@ class SingleSlidePipeline(Chain):
             llm: Language model with vision capabilities
             vision_prompt: Prompt for slide analysis
             dpi: Resolution for PDF rendering
+            return_steps: Whether to return intermediate chain outputs
         """
         super().__init__(**kwargs)
-
-        # Create processing pipeline using pipe operator
         self._chain = (
             LoadPageChain()
             | Page2ImageChain(default_dpi=dpi)
             | ImageEncodeChain()
             | VisionAnalysisChain(llm=llm, prompt=vision_prompt)
         )
+        self._return_steps = return_steps
 
     @property
     def input_keys(self) -> List[str]:
@@ -94,7 +95,10 @@ class SingleSlidePipeline(Chain):
     @property
     def output_keys(self) -> List[str]:
         """Output keys provided by the chain"""
-        return ["slide_analysis"]
+        keys = ["slide_analysis"]
+        if self._return_steps:
+            keys.append("chain_outputs")
+        return keys
 
     def _call(
         self,
@@ -109,16 +113,22 @@ class SingleSlidePipeline(Chain):
                 - page_num: Page number to process
 
         Returns:
-            Dictionary with SlideAnalysis object
+            Dictionary with SlideAnalysis object and optionally chain outputs
         """
-        result = self._chain.invoke(inputs)
-        return dict(
+        chain_outputs = self._chain.invoke(inputs)
+
+        result = dict(
             slide_analysis=SlideAnalysis(
                 page_num=inputs["page_num"],
-                vision_prompt=result["vision_prompt"],
-                content=result["llm_output"]
+                vision_prompt=chain_outputs["vision_prompt"],
+                content=chain_outputs["llm_output"]
             )
         )
+
+        if self._return_steps:
+            result["chain_outputs"] = chain_outputs
+
+        return result
 
 
 class PresentationPipeline(Chain):
