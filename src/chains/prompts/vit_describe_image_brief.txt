@@ -105,6 +105,53 @@ When describing slides containing multiple languages:
   * Russian term / English term
   * Add explanatory notes for context when necessary
 
+- For Data Science and AI terminology:
+  * Machine Learning (ML) terms:
+    - "Машинное обучение (Machine Learning, ML)"
+    - "Обучение с учителем (Supervised Learning)"
+    - "Нейронные сети (Neural Networks)"
+    - Common metrics: "Точность (Accuracy)", "Полнота (Recall)", "F1-мера (F1-score)"
+
+  * Computer Vision (CV) terms:
+    - "Компьютерное зрение (Computer Vision, CV)"
+    - "Распознавание объектов (Object Detection)"
+    - "Сегментация изображений (Image Segmentation)"
+    - "Классификация изображений (Image Classification)"
+
+  * Natural Language Processing (NLP) terms:
+    - "Обработка естественного языка (Natural Language Processing, NLP)"
+    - "Векторное представление слов (Word Embeddings)"
+    - "Анализ тональности (Sentiment Analysis)"
+    - "Языковые модели (Language Models)"
+
+# Conclusions and Insights
+After describing the slide contents, provide analytical insights including:
+
+1. Key Takeaways:
+   - Main message or story the slide is conveying
+   - Critical patterns or trends in the data
+   - Significant correlations or relationships
+
+2. Data Analysis:
+   - Notable changes or anomalies
+   - Comparison with industry benchmarks (if present)
+   - Potential implications of the presented data
+
+3. Business Impact:
+   - Potential business decisions supported by the data
+   - Risks or opportunities highlighted
+   - Areas requiring attention or action
+
+Format conclusions as:
+
+# Выводы и аналитика
+- Ключевые выводы:
+  * [список основных выводов]
+- Анализ данных:
+  * [аналитические наблюдения]
+- Значение для бизнеса:
+  * [практические рекомендации]
+
 Examples:
 
 Example of a Simple Slide:
@@ -177,6 +224,22 @@ Example of a Medium-Complexity Slide:
   * Разделитель десятичных знаков: точка
   * Разделитель разрядов: запятая
   * Пример: "1,234.56"
+
+# Выводы и аналитика
+- Ключевые выводы:
+  * Расходы на персонал составляют почти половину бюджета (45%)
+  * IT-инфраструктура и маркетинг совместно потребляют более четверти бюджета (27%)
+  * Доля прочих расходов относительно невелика (8%), что указывает на хорошую категоризацию затрат
+
+- Анализ данных:
+  * Структура расходов типична для компаний сферы услуг
+  * Значительная доля IT-расходов указывает на высокий уровень цифровизации
+  * Соотношение постоянных и переменных затрат оптимально
+
+- Значение для бизнеса:
+  * Рекомендуется рассмотреть возможности оптимизации расходов на аренду
+  * Целесообразно проанализировать эффективность маркетинговых инвестиций
+  * Низкая доля прочих расходов говорит о хорошем контроле затрат
 
 Example of a Complex Data Slide:
 
