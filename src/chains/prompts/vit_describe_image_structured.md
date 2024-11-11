@@ -135,3 +135,168 @@ Describe the overall arrangement of elements on the slide, including:
 - Spatial organization (left/right, top/bottom)
 - Proportions and emphasis
 - Use of white space
+
+# Examples
+
+Example of a Simple Slide:
+
+# Text Content
+## Text Elements
+- Header: "Рост продаж в Q3 2023"
+- Main figure: "25%"
+- Caption: "Квартальный рост"
+
+## Text Styling
+- Large size used for emphasis on the "25%" figure
+
+# Visual Content
+Minimal design without additional visual elements. The absence of supporting visuals does not impede information perception.
+
+# General Description
+## Topic Overview
+- Topic: Quarterly sales metrics
+- Purpose: Present key quarterly figures
+- Key Information: 25% sales growth
+
+## Layout and Composition
+Centered composition with one large number in the middle of the slide
+
+---
+
+Example of a Medium-Complexity Slide:
+
+# Text Content
+## Text Elements
+- Header: "Структура операционных расходов за 2023 год"
+- Legend items:
+  * Зарплата и бонусы (45%)
+  * Аренда помещений (20%)
+  * IT-инфраструктура (15%)
+  * Маркетинг (12%)
+  * Прочие расходы (8%)
+- Footer: "По данным финансового отдела, Q4 2023"
+
+## Text Styling
+- Header: blue color, 28pt
+
+## Multilingual Elements
+- "Операционные расходы (Operational Expenses, OPEX)"
+- Technical terms in legend:
+  * "IT-инфраструктура (IT Infrastructure)"
+  * "Cloud-сервисы (Cloud Services)"
+- Financial indicators use international format:
+  * Decimal separator: point
+  * Thousands separator: comma
+  * Example: "1,234.56"
+
+# Visual Content
+## Charts and Graphs
+Pie chart:
+- 5 sectors with different colors
+- Each sector labeled with percentage
+- Largest sector (salary and bonuses) slightly extruded for emphasis
+- Color scheme:
+  * Blue - salary and bonuses
+  * Green - rent
+  * Orange - IT
+  * Yellow - marketing
+  * Gray - other expenses
+
+## Branding
+- Thin dividing line between header and main content
+- Small company logo in bottom right corner
+
+# General Description
+## Topic Overview
+- Topic: Company expense structure
+- Purpose: Visualize main expense categories
+- Key Information: Budget distribution across 5 key categories
+
+## Layout and Composition
+- Pie chart occupies central part (70% of area)
+- Header at the top
+- Legend on the right side
+- Data source footnote at bottom
+
+## Conclusions and Insights
+### Key Takeaways
+- Personnel costs comprise almost half of budget (45%)
+- IT infrastructure and marketing jointly consume over quarter of budget (27%)
+- Other expenses relatively small (8%), indicating good cost categorization
+
+### Data Analysis
+- Expense structure typical for service companies
+- High IT expenses indicate high digitalization level
+- Optimal ratio of fixed to variable costs
+
+---
+
+Example of a Complex Data Slide:
+
+# Text Content
+## Text Elements
+- Main Header: "Потрясения последних лет уже кардинально изменили мир и повлияют на энергетические рынки будущего"
+- Subheader: "Зависимость цепочек поставок и инвестиций в энергетике от геополитических событий"
+- Text blocks:
+  1. "Мир, каким мы его знали":
+     - Экономия масштаба в производстве и ресурсоснабжении
+     - Эффективные глобальные цепочки поставок
+     - Потребление «золотым миллиардом»
+     - Акционерная стоимость превыше всего
+  2. "Мир, к которому мы идем":
+     - Разрывы привычных цепочек поставок, многополярность экономического ландшафта
+     - Ориентация на снижение рисков через построение суверенных энергетических экосистем
+     - Расширение практики приоритизации дружественных отношений в энергетических сделках
+     - Акцент на доступную и устойчивую энергию, как основу для создания долгосрочной ценности для общества
+- Source: "Federal Reserve Bank of New York; Bloomberg; открытые источники"
+
+## Text Styling
+- Main header: bold, large font, corporate blue
+- Text blocks: white text on black background
+- Key terms in second text block: highlighted in yellow
+- Source: small font size
+
+# Visual Content
+## Charts and Graphs
+Linear graph with dual Y-axes:
+- Black line: Global supply chain pressure index (left Y-axis)
+  * Scale: percentage
+  * Data labels: key points marked
+  * Accessibility: dotted pattern
+- Yellow line: Global energy price index (right Y-axis)
+  * Scale: USD
+  * Data labels: extremes marked
+  * Accessibility: solid pattern
+- X-axis: Timeline 2000-2023 with 5-year intervals
+- Annotations (vertical lines with labels):
+  * Мировой экономический кризис
+  * «Арабская весна»
+  * BREXIT
+  * Начало торговой войны США и Китая
+  * Эпидемия COVID-19
+  * Начало СВО
+  * Палестинский конфликт
+- Legend: below graph with pattern samples
+
+## Branding
+- "Яков и Партнёры" logo in bottom right
+- Corporate color scheme:
+  * Blue for headers
+  * Yellow for accents
+  * Black and white contrasts
+
+## Layout and Composition
+- Left section (60%): graph and header
+- Right section (40%): text blocks on black background
+- Corporate design elements present in color scheme and fonts
+
+# General Description
+## Topic Overview
+- Topic: Geopolitical events' impact on energy markets
+- Purpose: Show relationship between global events, supply chains, and energy prices
+- Key Information: Comparison of "world as we knew it" vs "world we're heading to" in energy markets context
+
+## Accessibility and Visualisation
+- Different line patterns (dotted and solid) for colorblind accessibility
+- High contrast white text on black background
+- Clear data labeling on key points
