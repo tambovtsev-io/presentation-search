@@ -41,12 +41,12 @@ class MultilineWrapper(TextWrapper):
         return lines
 
 
-def display_slide_analysis(
+def display_chain_outputs(
     chain_outputs: Dict[str, Any],
     wrap_width: Optional[int] = None,
     display_image: bool = True,
     display_vision_prompt: bool = False,
-    figsize: Union[tuple, list] = (12, 12)
+    figsize: Union[tuple, list] = (10, 10)
 ) -> None:
     """Display slide analysis results from chain outputs
 
@@ -77,29 +77,3 @@ def display_slide_analysis(
     if "llm_output" in chain_outputs:
         print(text_wrapper.fill(chain_outputs["llm_output"]))
 
-
-def query_and_display(
-    pipeline: Chain,
-    pdf_path: str,
-    page_num: int,
-    *args,
-    **kwargs
-) -> None:
-    """Convenience function that combines process_slide and display_slide_analysis
-
-    This is a backward compatibility wrapper that redirects to process_slide
-    function from pipelines module and displays results
-    """
-
-    out = pipeline.invoke(dict(
-        pdf_path=pdf_path,
-        page_num=page_num
-    ))
-
-    display_slide_analysis(
-        out["chain_outputs"],
-        **{k: v for k, v in kwargs.items()
-           if k in ["wrap_width", "display_image", "figsize"]}
-    )
-
-    return out

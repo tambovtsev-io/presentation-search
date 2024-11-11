@@ -1,7 +1,6 @@
 from src.config.output_formatting import (
     MultilineWrapper,
-    display_slide_analysis,
-    query_and_display,
+    display_chain_outputs
 )
 from src.config.navigator import Navigator
 from src.config.model_setup import ModelConfig

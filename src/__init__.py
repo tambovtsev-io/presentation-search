@@ -4,7 +4,7 @@ from src.config import (
     ModelConfig,
     Navigator,
     MultilineWrapper,
-    query_and_display,
+    display_chain_outputs
 )
 
 from src.chains import (
