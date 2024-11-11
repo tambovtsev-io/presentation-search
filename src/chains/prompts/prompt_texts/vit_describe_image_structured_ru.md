@@ -312,3 +312,20 @@ Example of a Complex Data Slide:
 - Левая часть (60%): график и заголовок
 - Правая часть (40%): текстовые блоки на черном фоне
 - Присутствуют фирменные элементы оформления в цветовой схеме и шрифтах
+
+# Output Format
+Provide your description as a JSON object with the following high-level structure:
+
+```json
+{
+  "text_content": "string",     // Content from "Text Content" section
+  "visual_content": "string",   // Content from "Visual Content" section
+  "general_description": {      // Content from "General Description" section
+    "topic_overview": "string",
+    "conclusions_and_insights": "string",
+    "layout_and_composition": "string"
+  }
+}
+```
+
+All text should be in Russian language. Preserve paragraph breaks using \n characters.
