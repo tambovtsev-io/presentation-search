@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional, Tuple, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pathlib import Path
 import json
 import logging
@@ -18,6 +18,7 @@ from src.chains.chains import (
 )
 
 from src.config.navigator import Navigator
+from src.chains.prompts import BasePrompt
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class SlideAnalysis(BaseModel):
     page_num: int
     vision_prompt: Optional[str]
     content: str
+    parsed_content: Union[BaseModel, dict] = dict()
 
     def reset_vision_prompt(self):
         """Reset vision prompt"""
@@ -36,6 +38,8 @@ class SlideAnalysis(BaseModel):
 
 class PresentationAnalysis(BaseModel):
     """Container for presentation analysis results"""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     name: str
     path: Path
     vision_prompt: str
@@ -47,9 +51,20 @@ class PresentationAnalysis(BaseModel):
 
     def save(self, save_path: Path):
         """Save analysis results to JSON"""
-        data = self.model_dump()
+        data = self.model_dump(
+            exclude=["vision_prompt"],
+            serialize_as_any=True
+        )
+
         # Convert Path to string for JSON serialization
         data["path"] = str(data["path"])
+
+        # Convert vision prompt to string if necessary
+        vp = self.vision_prompt
+        data["vision_prompt"] = (
+            vp.prompt_text if isinstance(vp, BasePrompt)
+            else vp
+        )
 
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
@@ -126,7 +141,8 @@ class SingleSlidePipeline(Chain):
             slide_analysis=SlideAnalysis(
                 page_num=inputs["page_num"],
                 vision_prompt=chain_outputs["vision_prompt"],
-                content=chain_outputs["llm_output"]
+                content=chain_outputs["llm_output"],
+                parsed_content=chain_outputs.get("parsed_output")
             )
         )
 
@@ -161,7 +177,8 @@ class PresentationPipeline(Chain):
             base_path: Base path for storing analysis results
         """
         super().__init__(**kwargs)
-        self._vision_prompt = vision_prompt
+        self._vision_prompt = str(vision_prompt)
+
         self._slide_pipeline = SingleSlidePipeline(
             llm=llm,
             vision_prompt=vision_prompt,
@@ -307,5 +324,3 @@ class PresentationPipeline(Chain):
         if self._save_final:
             presentation.save(save_path)
         return dict(presentation=presentation)
-
-

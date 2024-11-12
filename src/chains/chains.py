@@ -10,6 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.callbacks.manager import CallbackManagerForChainRun
 from langchain_core.output_parsers import StrOutputParser
 
+from langchain_core.runnables import RunnablePassthrough
 import pdf2image
 import fitz
 
@@ -19,6 +20,8 @@ from src.chains.chain_funcs import get_param_or_default
 
 from src.config.navigator import Navigator
 from src.processing import page2image, image2base64
+
+from src.chains.prompts import BasePrompt, SimpleVisionPrompt
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +180,7 @@ class ImageEncodeChain(Chain):
         Returns:
             Dictionary with base64 encoded image string
         """
-        image: Image.Image = inputs["image"]
+        image: Image = inputs["image"]
         encoded = image2base64(image)
         return dict(image_encoded=encoded)
 
@@ -193,7 +196,7 @@ class VisionAnalysisChain(Chain):
     @property
     def output_keys(self) -> List[str]:
         """Output keys provided by the chain"""
-        return ["vision_prompt", "llm_output"]
+        return ["vision_prompt", "llm_output", "parsed_output"]
 
     def __init__(
         self,
@@ -205,7 +208,7 @@ class VisionAnalysisChain(Chain):
 
         Args:
             llm: Language model with vision capabilities (e.g. GPT-4V)
-            prompt: Custom prompt for slide analysis
+            prompt: An instructuion passed to vision model
         """
         super().__init__(**kwargs)
 
@@ -213,21 +216,6 @@ class VisionAnalysisChain(Chain):
         self._llm = llm
         self._prompt = prompt
 
-        self._vision_prompt_template = ChatPromptTemplate.from_messages([
-            ("human", [
-                {"type": "text", "text": "{prompt}"},
-                {
-                    "type": "image",
-                    "image_url": "data:image/png;base64,{image_base64}"
-                }
-            ])
-        ])
-
-        self._chain = (
-            self._vision_prompt_template
-            | self._llm
-            | dict(llm_output=StrOutputParser())
-        )
 
     def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Process single image with the vision model
@@ -241,11 +229,26 @@ class VisionAnalysisChain(Chain):
             Dictionary with `analysis` - model's output
         """
         current_prompt = get_param_or_default(inputs, "vision_prompt", self._prompt)
-        out = self._chain.invoke({
+
+        if isinstance(current_prompt, str):
+            current_prompt = SimpleVisionPrompt(current_prompt)
+
+        chain = (
+            current_prompt.template
+            | self._llm
+            | dict(
+                llm_output=StrOutputParser(),
+                parsed_output=StrOutputParser() | current_prompt.parse
+            )
+        )
+
+        out = chain.invoke({
             "prompt": current_prompt,
             "image_base64": inputs["image_encoded"]
         })
-        out["vision_prompt"] = current_prompt
+
+        out["vision_prompt"] = current_prompt.prompt_text
+
         return out
 
 
