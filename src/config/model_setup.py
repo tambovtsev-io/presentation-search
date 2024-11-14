@@ -14,7 +14,7 @@ class ModelConfig:
     """
     def load_vsegpt(
         self,
-        model: str = "vis-openai/gpt-4o",
+        model: str = "vis-openai/gpt-4o-mini",
         temperature: float = 0.0
     ) -> BaseLanguageModel:
         """Load VSEGPT OpenAI-compatible model.
