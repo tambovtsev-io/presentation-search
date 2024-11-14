@@ -180,7 +180,7 @@ class ImageEncodeChain(Chain):
         Returns:
             Dictionary with base64 encoded image string
         """
-        image: Image = inputs["image"]
+        image: Image.Image = inputs["image"]
         encoded = image2base64(image)
         return dict(image_encoded=encoded)
 
