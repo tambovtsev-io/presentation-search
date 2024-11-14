@@ -165,7 +165,26 @@ class SimpleVisionPrompt(BaseVisionPrompt):
 
 
 class JsonH1AndGDPrompt(BasePydanticVisionPrompt):
-    """Prompt for structured slide analysis with Pydantic parsing"""
+    """
+    Prompt for structured slide analysis with Pydantic parsing.
+    H1 And GD means that it parses level 1 headings and 
+    level 2 of General Description section
+    The structure it follows:
+    ```
+    # Text Content
+    [description of text content]
+    
+    # Vision Content
+    [description of visual content]
+    
+    # General Description
+    ## Topic Overview
+    
+    ## Conclusions and Insights
+    
+    ## Layout and Composition
+    ```
+    """
     class SlideDescription(BaseModel):
         class GeneralDescription(BaseModel):
             topic_overview: str
