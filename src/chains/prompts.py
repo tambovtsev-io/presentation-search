@@ -1,18 +1,15 @@
-from typing import Dict, Any, Optional, Type, Union, TypeVar
-from abc import ABC, abstractmethod
 import logging
-
-from pydantic import BaseModel
-from langchain.prompts import ChatPromptTemplate
-from langchain.output_parsers import PydanticOutputParser
-from langchain_core.output_parsers import BaseOutputParser
-from langchain_core.output_parsers import StrOutputParser
-
+from abc import ABC, abstractmethod
 from textwrap import dedent
+from typing import Any, Dict, Optional, Type, TypeVar, Union
+
+from langchain.output_parsers import PydanticOutputParser
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import BaseOutputParser, StrOutputParser
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 
 
 class BasePrompt(ABC):
@@ -62,7 +59,7 @@ class BasePrompt(ABC):
         return self._template
 
     @abstractmethod
-    def parse(self, text: str) -> T:
+    def parse(self, text: str) -> object:
         """Parse LLM output
 
         Args:

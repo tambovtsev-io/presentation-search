@@ -1,14 +1,14 @@
-from typing import List, Dict, Any, Optional, Tuple, Union
-from pydantic import BaseModel, ConfigDict, Field
-from pathlib import Path
 import json
 import logging
-from tqdm import tqdm
 from datetime import datetime
-import fitz
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from langchain_openai.chat_models import ChatOpenAI
+import fitz
 from langchain.chains.base import Chain
+from langchain_openai.chat_models import ChatOpenAI
+from pydantic import BaseModel, ConfigDict, Field
+from tqdm import tqdm
 
 from src.chains.chains import (
     LoadPageChain,
@@ -16,11 +16,8 @@ from src.chains.chains import (
     ImageEncodeChain,
     VisionAnalysisChain
 )
-
 from src.chains.prompts import BasePrompt, JsonH1AndGDPrompt
 from src.config.navigator import Navigator
-from src.chains.prompts import BasePrompt
-
 
 logger = logging.getLogger(__name__)
 
