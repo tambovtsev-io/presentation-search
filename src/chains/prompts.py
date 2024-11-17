@@ -86,8 +86,8 @@ class BaseVisionPrompt(BasePrompt):
             ("human", [
                 {"type": "text", "text": self._prompt_text},
                 {
-                    "type": "image",
-                    "image_url": "data:image/png;base64,{image_base64}"
+                    "type": "image_url",
+                    "image_url": "data:image/jpeg;base64,{image_base64}"
                 }
             ])
         ])
@@ -167,21 +167,21 @@ class SimpleVisionPrompt(BaseVisionPrompt):
 class JsonH1AndGDPrompt(BasePydanticVisionPrompt):
     """
     Prompt for structured slide analysis with Pydantic parsing.
-    H1 And GD means that it parses level 1 headings and 
+    H1 And GD means that it parses level 1 headings and
     level 2 of General Description section
     The structure it follows:
     ```
     # Text Content
     [description of text content]
-    
+
     # Vision Content
     [description of visual content]
-    
+
     # General Description
     ## Topic Overview
-    
+
     ## Conclusions and Insights
-    
+
     ## Layout and Composition
     ```
     """
@@ -369,7 +369,7 @@ Example of a Simple Slide:
 {{
   "text_content": "Заголовок: \"Рост продаж в Q3 2023\"\nОсновная цифра: \"25%\"\nПодпись: \"Квартальный рост\"\n\nСтилизация текста: крупный размер шрифта использован для акцента на цифре \"25%\"",
 
-  "visual_content": "Минимальное оформление без дополнительных визуальных элементов. Отсутствие вспомогательных визуальных элементов не мешает восприятию информации.",
+  "visual_content": "Минимальное оформление без дополнительных визуальных элементов.",
 
   "general_description": {{
     "topic_overview": "Тема: Квартальные показатели продаж\nЦель: Представить ключевые цифры за квартал\nКлючевая информация: Рост продаж на 25%",

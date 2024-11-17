@@ -1,13 +1,14 @@
-from typing import Dict, Any, Optional, Union, List
-from langchain.chains.base import Chain
-import matplotlib.pyplot as plt
 from pathlib import Path
+from textwrap import TextWrapper
+from typing import Any, Dict, List, Optional, Union
 
-from src.chains.pipelines import PresentationAnalysis
+import matplotlib.pyplot as plt
+from langchain.chains.base import Chain
 from pydantic import BaseModel
 
+from src.chains.pipelines import PresentationAnalysis
+from src.config.navigator import Navigator
 
-from textwrap import TextWrapper
 
 class MultilineWrapper(TextWrapper):
     """
@@ -35,7 +36,7 @@ class MultilineWrapper(TextWrapper):
         self.break_long_words = False
 
     def wrap(self, text):
-        split_text = text.split('\n')
+        split_text = text.split("\n")
         lines = []
         for para in split_text:
             if para == "":
@@ -46,10 +47,10 @@ class MultilineWrapper(TextWrapper):
         return lines
 
 
-def _format_dict_output(
+def format_dict_output(
     data: Dict | BaseModel,
-    text_wrapper: MultilineWrapper,
-    indent_level: int = 0
+    text_wrapper: MultilineWrapper = MultilineWrapper(),
+    indent_level: int = 0,
 ) -> str:
     """Format Pydantic object for display
 
@@ -76,18 +77,13 @@ def _format_dict_output(
             # Handle nested Pydantic models
             lines.append(f"{indent}{display_name}:")
             nested_obj = data[field_name]
-            nested_text = _format_dict_output(
-                nested_obj,
-                text_wrapper,
-                indent_level + 1
-            )
+            nested_text = format_dict_output(nested_obj, text_wrapper, indent_level + 1)
             lines.append(nested_text)
         else:
             # Handle simple fields
             wrapped_value = text_wrapper.fill(str(field_value))
             indented_value = "\n".join(
-                f"{indent}    {line}"
-                for line in wrapped_value.split("\n")
+                f"{indent}    {line}" for line in wrapped_value.split("\n")
             )
             lines.append(f"{indent}{display_name}:")
             lines.append(indented_value)
@@ -100,7 +96,7 @@ def display_chain_outputs(
     wrap_width: Optional[int] = None,
     display_image: bool = True,
     display_vision_prompt: bool = False,
-    figsize: Union[tuple, list] = (10, 10)
+    figsize: Union[tuple, list] = (10, 10),
 ) -> None:
     """Display slide analysis results from chain outputs
 
@@ -116,8 +112,7 @@ def display_chain_outputs(
         figsize: Figure size for matplotlib display
     """
     text_wrapper = (
-        MultilineWrapper(width=wrap_width) if wrap_width
-        else MultilineWrapper()
+        MultilineWrapper(width=wrap_width) if wrap_width else MultilineWrapper()
     )
 
     # Display image if present and requested
@@ -138,7 +133,7 @@ def display_chain_outputs(
         # Display structured output
         print("Structured Analysis:")
         parsed_output = chain_outputs["parsed_output"]
-        formatted_output = _format_dict_output(parsed_output, text_wrapper)
+        formatted_output = format_dict_output(parsed_output, text_wrapper)
         print(formatted_output)
     elif "llm_output" in chain_outputs:
         # Display raw LLM output
@@ -151,7 +146,7 @@ def display_presentation_analysis(
     slide_nums: Optional[List[int]] = None,
     wrap_width: Optional[int] = 120,
     show_page_nums: bool = True,
-    show_vision_prompt: bool = False
+    show_vision_prompt: bool = False,
 ) -> None:
     """Display slides content from presentation analysis
 
@@ -164,7 +159,8 @@ def display_presentation_analysis(
     """
     # Initialize text wrapper if needed
     wrapper = (
-        MultilineWrapper(width=wrap_width) if wrap_width
+        MultilineWrapper(width=wrap_width)
+        if wrap_width
         else MultilineWrapper(width=200)
     )
 
@@ -197,21 +193,25 @@ def display_presentation_analysis(
             print(f"\nPrompt: {slide.vision_prompt}")
 
         if slide.parsed_content is not None:
-            content = _format_dict_output(slide.parsed_content, wrapper)
+            content = format_dict_output(slide.parsed_content, wrapper)
         else:
             content = wrapper.fill(slide.content)
         print(f"\n{content}\n")
 
 
-def display_presentation_from_file(
-    file_path: Union[str, Path],
-    **kwargs
-) -> None:
+def display_presentation_from_file(file_path: Union[str, Path], **kwargs) -> None:
     """Load and display slides from a file
 
     Args:
         file_path: Path to the analysis JSON file
         **kwargs: Additional arguments passed to display_slides method
     """
+    nav = Navigator()
+    if isinstance(file_path, str):
+        file_path: Path = nav.find_file_by_substr(
+            file_path, base_dir=nav.interim, return_first=True
+        )
+        print(file_path)
+
     analysis = PresentationAnalysis.load(Path(file_path))
     display_presentation_analysis(analysis, **kwargs)

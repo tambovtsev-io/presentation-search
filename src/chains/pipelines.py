@@ -17,6 +17,7 @@ from src.chains.chains import (
     VisionAnalysisChain
 )
 
+from src.chains.prompts import BasePrompt, JsonH1AndGDPrompt
 from src.config.navigator import Navigator
 from src.chains.prompts import BasePrompt
 
@@ -29,7 +30,7 @@ class SlideAnalysis(BaseModel):
     page_num: int
     vision_prompt: Optional[str]
     content: str
-    parsed_content: Union[BaseModel, dict] = dict()
+    parsed_content: JsonH1AndGDPrompt.SlideDescription
 
     def reset_vision_prompt(self):
         """Reset vision prompt"""
@@ -87,7 +88,7 @@ class SingleSlidePipeline(Chain):
         llm: Optional[ChatOpenAI] = None,
         vision_prompt: str = "Describe this slide in detail",
         dpi: int = 72,
-        return_steps: bool = False,
+        return_steps: bool = True,
         **kwargs
     ):
         """Initialize pipeline for single slide processing
