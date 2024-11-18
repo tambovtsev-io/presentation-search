@@ -8,14 +8,16 @@ from langchain.chains.base import Chain
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.callbacks.manager import CallbackManagerForChainRun
+from langchain_core.messages import AIMessage
 from langchain_core.output_parsers import StrOutputParser
 
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 import pdf2image
 import fitz
 
 from io import BytesIO
 from PIL import Image
+from pydantic import BaseModel
 from src.chains.chain_funcs import get_param_or_default
 
 from src.config.navigator import Navigator
@@ -187,6 +189,9 @@ class ImageEncodeChain(Chain):
 
 class VisionAnalysisChain(Chain):
     """Single image analysis chain"""
+    # class LLMResponse(BaseModel):
+    #     llm_output: str
+    #     response_metadata: dict
 
     @property
     def input_keys(self) -> List[str]:
@@ -238,7 +243,7 @@ class VisionAnalysisChain(Chain):
             | self._llm
             | dict(
                 llm_output=StrOutputParser(),
-                parsed_output=StrOutputParser() | current_prompt.parse
+                message=RunnablePassthrough() # [AIMessage(content)]
             )
         )
 
@@ -247,9 +252,13 @@ class VisionAnalysisChain(Chain):
             "image_base64": inputs["image_encoded"]
         })
 
-        out["vision_prompt"] = current_prompt.prompt_text
-
-        return out
+        result = dict(
+            llm_output=out["llm_output"],
+            parsed_output=current_prompt.parse(out["llm_output"]),
+            response_metadata=out["message"].response_metadata,
+            vision_prompt=current_prompt.prompt_text
+        )
+        return result
 
 
 # Further chains are for batched processing.

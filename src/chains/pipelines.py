@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import fitz
 from langchain.chains.base import Chain
 from langchain_openai.chat_models import ChatOpenAI
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from tqdm import tqdm
 
 from src.chains.chains import (
@@ -24,10 +24,16 @@ logger = logging.getLogger(__name__)
 
 class SlideAnalysis(BaseModel):
     """Container for slide analysis results"""
+    pdf_path: Path
     page_num: int
     vision_prompt: Optional[str]
-    content: str
-    parsed_content: JsonH1AndGDPrompt.SlideDescription
+    llm_output: str
+    response_metadata: dict = dict()
+    parsed_output: JsonH1AndGDPrompt.SlideDescription = JsonH1AndGDPrompt.SlideDescription()
+
+    @field_serializer("pdf_path") 
+    def serialize_path(self, pdf_path):
+        return str(Navigator().get_relative_path(pdf_path))
 
     def reset_vision_prompt(self):
         """Reset vision prompt"""
@@ -36,7 +42,7 @@ class SlideAnalysis(BaseModel):
 
 class PresentationAnalysis(BaseModel):
     """Container for presentation analysis results"""
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = dict(arbitrary_types_allowed=True)
 
     name: str
     path: Path
@@ -47,23 +53,22 @@ class PresentationAnalysis(BaseModel):
         default_factory=lambda: datetime.now().isoformat()
     )
 
+    @field_serializer("vision_prompt")
+    def serialize_vision_prompt(self, vision_prompt):
+        return (
+            vision_prompt.prompt_text
+            if isinstance(vision_prompt, BasePrompt)
+            else vision_prompt
+        )
+
+    @field_serializer("path")
+    def serialize_path(self, pdf_path):
+        return str(Navigator().get_relative_path(pdf_path))
+
+
     def save(self, save_path: Path):
         """Save analysis results to JSON"""
-        data = self.model_dump(
-            exclude=["vision_prompt"],
-            serialize_as_any=True
-        )
-
-        # Convert Path to string for JSON serialization
-        data["path"] = str(data["path"])
-
-        # Convert vision prompt to string if necessary
-        vp = self.vision_prompt
-        data["vision_prompt"] = (
-            vp.prompt_text if isinstance(vp, BasePrompt)
-            else vp
-        )
-
+        data = self.model_dump()
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -72,8 +77,9 @@ class PresentationAnalysis(BaseModel):
         """Load analysis results from JSON"""
         with open(load_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
         # Convert string back to Path
-        data["path"] = Path(data["path"])
+        data["path"] = Navigator().get_absolute_path(Path(data["path"]))
         return cls(**data)
 
 
@@ -135,14 +141,7 @@ class SingleSlidePipeline(Chain):
         """
         chain_outputs = self._chain.invoke(inputs)
 
-        result = dict(
-            slide_analysis=SlideAnalysis(
-                page_num=inputs["page_num"],
-                vision_prompt=chain_outputs["vision_prompt"],
-                content=chain_outputs["llm_output"],
-                parsed_content=chain_outputs.get("parsed_output")
-            )
-        )
+        result = dict(slide_analysis=SlideAnalysis(**chain_outputs))
 
         if self._return_steps:
             result["chain_outputs"] = chain_outputs

@@ -87,3 +87,9 @@ class Navigator:
             return None
 
         return results[0] if return_first else results
+
+    def get_relative_path(self, abs_path: Path):
+        return abs_path.relative_to(self.root)
+
+    def get_absolute_path(self, rel_path: Path):
+        return self.root / rel_path

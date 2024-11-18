@@ -125,7 +125,7 @@ class BasePydanticVisionPrompt(BaseVisionPrompt):
 
     def parse(self, text: str) -> Optional[BaseModel]:
         """Parse output according to Pydantic schema"""
-        out = None
+        out = self._get_schema()() # Empty object for schema
         try:
             out = self._parser.parse(text)
         except Exception as e:
@@ -183,14 +183,20 @@ class JsonH1AndGDPrompt(BasePydanticVisionPrompt):
     ```
     """
     class SlideDescription(BaseModel):
-        class GeneralDescription(BaseModel):
-            topic_overview: str
-            conclusions_and_insights: str
-            layout_and_composition: str
+        """
+        Slide Description Schema
 
-        text_content: str
-        visual_content: str
-        general_description: GeneralDescription
+        The properties are set to empty strings by default
+        to handle failed parsing
+        """
+        class GeneralDescription(BaseModel):
+            topic_overview: str = ""
+            conclusions_and_insights: str = ""
+            layout_and_composition: str = ""
+
+        text_content: str = ""
+        visual_content: str = ""
+        general_description: GeneralDescription = GeneralDescription()
 
     def _get_schema(self) -> Type[BaseModel]:
         """Get output schema"""
