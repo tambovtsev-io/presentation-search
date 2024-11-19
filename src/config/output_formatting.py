@@ -192,8 +192,8 @@ def display_presentation_analysis(
         if show_vision_prompt and slide.vision_prompt:
             print(f"\nPrompt: {slide.vision_prompt}")
 
-        if slide.parsed_content is not None:
-            content = format_dict_output(slide.parsed_content, wrapper)
+        if slide.parsed_output is not None:
+            content = format_dict_output(slide.parsed_output, wrapper)
         else:
             content = wrapper.fill(slide.content)
         print(f"\n{content}\n")
