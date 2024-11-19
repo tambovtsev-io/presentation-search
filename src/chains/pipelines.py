@@ -21,6 +21,7 @@ from src.config.navigator import Navigator
 
 logger = logging.getLogger(__name__)
 
+SlideDescription = JsonH1AndGDPrompt.SlideDescription
 
 class SlideAnalysis(BaseModel):
     """Container for slide analysis results"""
@@ -29,9 +30,9 @@ class SlideAnalysis(BaseModel):
     vision_prompt: Optional[str]
     llm_output: str
     response_metadata: dict = dict()
-    parsed_output: JsonH1AndGDPrompt.SlideDescription = JsonH1AndGDPrompt.SlideDescription()
+    parsed_output: SlideDescription = SlideDescription()
 
-    @field_serializer("pdf_path") 
+    @field_serializer("pdf_path")
     def serialize_path(self, pdf_path):
         return str(Navigator().get_relative_path(pdf_path))
 
