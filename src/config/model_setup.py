@@ -15,7 +15,7 @@ class ModelConfig:
     def load_vsegpt(
         self,
         model: str = "vis-openai/gpt-4o-mini",
-        temperature: float = 0.0
+        temperature: float = 0.2
     ) -> BaseLanguageModel:
         """Load VSEGPT OpenAI-compatible model.
 
@@ -31,6 +31,28 @@ class ModelConfig:
 
         return ChatOpenAI(
             base_url=api_base,
+            model=model,
+            api_key=api_key,
+            temperature=temperature
+        )
+
+    def load_openai(
+        self,
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.2
+    ) -> BaseLanguageModel:
+        """Load OpenAI model.
+
+        Args:
+            model: Model identifier from vsegpt.ru/Docs/Models
+            temperature: Sampling temperature (0.2 = deterministic)
+
+        Returns:
+            Configured language model instance
+        """
+        api_key = os.environ["OPENAI_API_KEY"]
+
+        return ChatOpenAI(
             model=model,
             api_key=api_key,
             temperature=temperature
