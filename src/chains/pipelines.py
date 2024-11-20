@@ -43,7 +43,7 @@ class SlideAnalysis(BaseModel):
 
 class PresentationAnalysis(BaseModel):
     """Container for presentation analysis results"""
-    model_config = dict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str
     path: Path
