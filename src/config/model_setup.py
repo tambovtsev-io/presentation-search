@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from langchain_openai import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 from langchain_core.language_models.base import BaseLanguageModel
 from src.testing_utils.echo_llm import EchoLLM
 
