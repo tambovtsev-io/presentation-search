@@ -57,6 +57,10 @@ class ScoredChunk(BaseModel):
         """Get chunk type from metadata"""
         return self.document.metadata["chunk_type"]
 
+    @property
+    def page_num(self) -> int:
+        return int(self.document.metadata["page_num"])
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -97,10 +101,14 @@ class SearchResultPage(BaseModel):
     def best_score(self):
         return self.matched_chunk.score
 
+    @property
+    def page_num(self):
+        return self.matched_chunk.page_num
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class PresentationSearchResult(BaseModel):
+class SearchResultPresentation(BaseModel):
     """Container for presentation-level search results
 
     Represents all matching slides from a single presentation
@@ -166,7 +174,7 @@ class SlideIndexer:
         metadata = dict(
             # Basic slide info
             pdf_path=str(slide.pdf_path),
-            page_num=str(slide.page_num),
+            page_num=str(slide.page_num), # BUG: why str?
             # Chunk specific
             chunk_type=chunk_type,
             slide_id=f"{slide.pdf_path.stem}__{slide.page_num}",
@@ -453,7 +461,7 @@ class ChromaSlideStore:
         search_results = self.search_query(
             query=query,
             chunk_types=chunk_types,
-            n_results=n_results * 5,  # Get more to handle duplicates
+            n_results=n_results * 3,  # Get more to handle duplicates
             max_score=max_distance,
             metadata_filter=metadata_filter,
         )
@@ -500,20 +508,20 @@ class ChromaSlideStore:
             )
             page_results.append(result)
 
-            if len(page_results) == n_results:
-                break
+            # if len(page_results) == n_results:
+            #     break
 
-        return page_results[:n_results]
+        return page_results # [:n_results]
 
     def search_query_presentations(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
         n_results: int = 3,
-        n_slides_per_presentation: int = 4,
+        n_slides_per_presentation: int = 3,
         max_distance: float = 2.0,
         metadata_filter: Optional[Dict] = None,
-    ) -> List[PresentationSearchResult]:
+    ) -> List[SearchResultPresentation]:
         """Search presentations based on query and return grouped results
 
         Args:
@@ -532,7 +540,7 @@ class ChromaSlideStore:
         search_results = self.search_query_pages(
             query=query,
             chunk_types=chunk_types,
-            n_results=n_results * n_slides_per_presentation * 2,
+            n_results=n_results * n_slides_per_presentation,
             max_distance=max_distance,
             metadata_filter=metadata_filter,
         )
@@ -553,12 +561,12 @@ class ChromaSlideStore:
             if len(presentations_map[pres_name]) < n_slides_per_presentation:
                 presentations_map[pres_name].append(result)
 
-        # Convert to PresentationSearchResult objects
+        # Convert to SearchResultPresentation objects
         presentation_results = []
 
         for pres_name, slides in presentations_map.items():
             # Create presentation result
-            pres_result = PresentationSearchResult(
+            pres_result = SearchResultPresentation(
                 slides=slides,
                 # NOTE: This is only for testing. Can be removed
                 metadata=dict(
@@ -570,13 +578,13 @@ class ChromaSlideStore:
             )
             presentation_results.append(pres_result)
 
-            if len(presentation_results) == n_results:
-                break
+            # if len(presentation_results) == n_results:
+            #     break
 
         # TODO: Gotta check different ways to sort
         presentation_results.sort(key=lambda x: x.mean_score)
 
-        return presentation_results[:n_results]
+        return presentation_results # [:n_results]
 
     def get_by_metadata(
         self, metadata_filter: Dict, n_results: Optional[int] = None

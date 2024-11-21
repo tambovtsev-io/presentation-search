@@ -341,7 +341,7 @@ def display_search_result_page(
     print("\nChunk distances:")
     print("-" * 80)
     for chunk_type, distance in result.chunk_distances.items():
-        status = f"distance: {distance:.3f}" if distance is not None else "not matched"
+        status = f"{distance:.3f}" if distance is not None else "not matched"
         print(f"{chunk_type}: {status}")
 
     # Display all chunks content
