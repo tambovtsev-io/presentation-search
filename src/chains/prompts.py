@@ -1,18 +1,15 @@
-from typing import Dict, Any, Optional, Type, Union, TypeVar
-from abc import ABC, abstractmethod
 import logging
-
-from pydantic import BaseModel
-from langchain.prompts import ChatPromptTemplate
-from langchain.output_parsers import PydanticOutputParser
-from langchain_core.output_parsers import BaseOutputParser
-from langchain_core.output_parsers import StrOutputParser
-
+from abc import ABC, abstractmethod
 from textwrap import dedent
+from typing import Any, Dict, Optional, Type, TypeVar, Union
+
+from langchain.output_parsers import PydanticOutputParser
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import BaseOutputParser, StrOutputParser
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 
 
 class BasePrompt(ABC):
@@ -62,7 +59,7 @@ class BasePrompt(ABC):
         return self._template
 
     @abstractmethod
-    def parse(self, text: str) -> T:
+    def parse(self, text: str) -> object:
         """Parse LLM output
 
         Args:
@@ -128,7 +125,7 @@ class BasePydanticVisionPrompt(BaseVisionPrompt):
 
     def parse(self, text: str) -> Optional[BaseModel]:
         """Parse output according to Pydantic schema"""
-        out = None
+        out = self._get_schema()() # Empty object for schema
         try:
             out = self._parser.parse(text)
         except Exception as e:
@@ -186,14 +183,20 @@ class JsonH1AndGDPrompt(BasePydanticVisionPrompt):
     ```
     """
     class SlideDescription(BaseModel):
-        class GeneralDescription(BaseModel):
-            topic_overview: str
-            conclusions_and_insights: str
-            layout_and_composition: str
+        """
+        Slide Description Schema
 
-        text_content: str
-        visual_content: str
-        general_description: GeneralDescription
+        The properties are set to empty strings by default
+        to handle failed parsing
+        """
+        class GeneralDescription(BaseModel):
+            topic_overview: str = ""
+            conclusions_and_insights: str = ""
+            layout_and_composition: str = ""
+
+        text_content: str = ""
+        visual_content: str = ""
+        general_description: GeneralDescription = GeneralDescription()
 
     def _get_schema(self) -> Type[BaseModel]:
         """Get output schema"""
