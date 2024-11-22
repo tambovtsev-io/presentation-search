@@ -13,6 +13,10 @@ class Navigator:
 
     def __post_init__(self):
         """Initialize all project paths"""
+
+        # Root paths
+        self.log = self.root / "log"
+
         # Data Paths
         self.data = self.root / "data"
         self.raw = self.data / "raw"
@@ -89,7 +93,9 @@ class Navigator:
         return results[0] if return_first else results
 
     def get_relative_path(self, abs_path: Path):
-        return abs_path.relative_to(self.root)
+        if abs_path.is_absolute():
+            return abs_path.relative_to(self.root)
+        return abs_path
 
     def get_absolute_path(self, rel_path: Path):
         return self.root / rel_path

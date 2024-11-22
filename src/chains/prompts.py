@@ -267,7 +267,9 @@ When describing slides containing multiple languages:
     - "Языковые модели (Language Models)"
 
 # Visual Content
-Provide detailed descriptions of all visual components present on the slide. When multiple visual elements are present, describe them in the following order:
+Provide detailed descriptions of all visual components present on the slide. Do not leave any details un-narrated as some of your viewers are vision-impaired, so if you don't narrate every number they won't know the number.
+
+When multiple visual elements are present, describe them in the following order:
 1. Primary functional visuals (main charts, diagrams, or images that convey key information)
 2. Secondary functional visuals (supporting graphics or illustrations)
 3. Decorative elements (background patterns, borders, or design elements)

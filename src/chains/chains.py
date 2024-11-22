@@ -60,6 +60,8 @@ class FindPdfChain(Chain):
         else:
             pdf_path = Path(fpath_or_name)
 
+        if not pdf_path.is_absolute():
+            pdf_path = self.navigator.get_absolute_path(pdf_path)
         return dict(pdf_path=pdf_path)
 
 

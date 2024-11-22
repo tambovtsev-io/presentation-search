@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from langchain.chains.base import Chain
 from pydantic import BaseModel
 
+from src.chains.chains import FindPdfChain, LoadPageChain, Page2ImageChain
+from src.rag.storage import SearchResult, SearchResultPage, ScoredChunk
 from src.chains.pipelines import PresentationAnalysis
 from src.config.navigator import Navigator
 
@@ -215,3 +217,137 @@ def display_presentation_from_file(file_path: Union[str, Path], **kwargs) -> Non
 
     analysis = PresentationAnalysis.load(Path(file_path))
     display_presentation_analysis(analysis, **kwargs)
+
+
+def display_slide_image(
+    pdf_path: Path,
+    page_num: int,
+    dpi: int = 150,
+    figsize: tuple = (10, 10)
+) -> None:
+    """Display slide from PDF file
+
+    Args:
+        pdf_path: Path to PDF file
+        page_num: Page number to display
+        dpi: Resolution for rendering
+        figsize: Figure size for matplotlib
+    """
+    # Load and convert page to image
+    chain =  (
+        FindPdfChain()
+        | LoadPageChain()
+        | Page2ImageChain(default_dpi=dpi)
+    )
+
+    image = chain.invoke({
+        "pdf_path": pdf_path,
+        "page_num": page_num
+    })["image"]
+
+    # Display with matplotlib
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.imshow(image)
+    ax.axis("off")
+    plt.show()
+
+
+def display_search_result(
+    chunk: ScoredChunk,
+    text_wrapper: Optional[MultilineWrapper] = None,
+    display_image: bool = True,
+    image_dpi: int = 150,
+    figsize: tuple = (10, 10)
+) -> None:
+    """Display search result chunk
+
+    Args:
+        chunk: Scored chunk from search
+        text_wrapper: Optional text wrapper for formatting
+        display_image: Whether to display slide image
+        image_dpi: Resolution for slide rendering
+        figsize: Figure size for slide display
+    """
+    # Use default wrapper if none provided
+    if text_wrapper is None:
+        text_wrapper = MultilineWrapper(width=120)
+
+    # Display slide image if requested
+    if display_image:
+        pdf_path = Path(chunk.document.metadata["pdf_path"])
+        page_num = int(chunk.document.metadata["page_num"])
+
+        print(f"Slide from: {pdf_path.name}")
+        print(f"Page: {page_num + 1}")
+        print("-" * 80)
+
+        display_slide_image(
+            pdf_path=pdf_path,
+            page_num=page_num,
+            dpi=image_dpi,
+            figsize=figsize
+        )
+
+    # Display chunk information
+    print(f"\nChunk type: {chunk.chunk_type}")
+    print(f"Distance: {chunk.score:.3f}")
+    print("-" * 80)
+    print(text_wrapper.fill(chunk.document.page_content))
+
+
+def display_search_result_page(
+    result: SearchResultPage,
+    text_wrapper: Optional[MultilineWrapper] = None,
+    display_image: bool = True,
+    image_dpi: int = 150,
+    figsize: tuple = (7, 7)
+) -> None:
+    """Display search result with full slide context
+
+    Args:
+        result: Search result with context
+        text_wrapper: Optional text wrapper for formatting
+        display_image: Whether to display slide image
+        image_dpi: Resolution for slide rendering
+        figsize: Figure size for slide display
+    """
+    # Use default wrapper if none provided
+    if text_wrapper is None:
+        text_wrapper = MultilineWrapper(width=120)
+
+    # Display slide image if requested
+    if display_image:
+        pdf_path = Path(result.matched_chunk.document.metadata["pdf_path"])
+        page_num = int(result.matched_chunk.document.metadata["page_num"])
+
+        print(f"Slide from: {pdf_path.name}")
+        print(f"Page: {page_num + 1}")
+        print("-" * 80)
+
+        display_slide_image(
+            pdf_path=pdf_path,
+            page_num=page_num,
+            dpi=image_dpi,
+            figsize=figsize
+        )
+
+    # Display match information
+    print(f"\nBest matching chunk ({result.matched_chunk.chunk_type}):")
+    print(f"Distance: {result.metadata['best_distance']:.3f}")
+    print("-" * 80)
+    print(text_wrapper.fill(result.matched_chunk.document.page_content))
+
+    # Display distances for other chunks
+    print("\nChunk distances:")
+    print("-" * 80)
+    for chunk_type, distance in result.chunk_distances.items():
+        status = f"{distance:.3f}" if distance is not None else "not matched"
+        print(f"{chunk_type}: {status}")
+
+    # Display all chunks content
+    print("\nFull slide content:")
+    print("-" * 80)
+    for chunk_type, doc in result.slide_chunks.items():
+        print(f"\n{chunk_type}:")
+        print(text_wrapper.fill(doc.page_content))
+        print("-" * 40)
