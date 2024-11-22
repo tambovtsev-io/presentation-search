@@ -1,6 +1,9 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Navigator:
@@ -10,10 +13,16 @@ class Navigator:
 
     def __post_init__(self):
         """Initialize all project paths"""
+        # Data Paths
         self.data = self.root / "data"
         self.raw = self.data / "raw"
         self.interim = self.data / "interim"
         self.processed = self.data / "processed"
+
+        # src paths
+        self.src = self.root / "src"
+        self.chains = self.src / "chains"
+        self.prompt_stor = self.chains / "prompt_stor"
 
         # Create directories if they don't exist
         for path in [self.interim, self.processed]:
@@ -34,7 +43,8 @@ class Navigator:
             substr: str,
             extension: Optional[str] = None,
             base_dir: Optional[Path] = None,
-        ) -> List[Path]:
+            return_first: bool = True
+        ) -> Optional[Union[List[Path], Path]] :
         """
         Find file by substring.
 
@@ -54,10 +64,32 @@ class Navigator:
         if base_dir is None:
            base_dir = self.data
 
-        results = list(base_dir.rglob(search_pattern))
+        # find results matching pattern
+        results = base_dir.rglob(search_pattern)
+
+        # remove directories from the results
+        results = [path for path in results if path.is_file()]
+
+        # sort by length so that the shortest is the first
+        # thus we avoid picking modified file
+        results = list(sorted(
+            results,
+            key=lambda path: len(path.name),
+        ))
+
+
         if extension is not None:
             results = [path for path in results if path.name.endswith(extension)]
         if len(results) > 1:
-            print(f"Found {len(results)} matches for {substr}")
+            logger.info(f"Found {len(results)} matches for {substr}")
 
-        return results
+        if not results:
+            return None
+
+        return results[0] if return_first else results
+
+    def get_relative_path(self, abs_path: Path):
+        return abs_path.relative_to(self.root)
+
+    def get_absolute_path(self, rel_path: Path):
+        return self.root / rel_path
