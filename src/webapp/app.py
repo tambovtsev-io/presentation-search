@@ -5,12 +5,14 @@ from textwrap import dedent
 from typing import Dict, List, Optional, Tuple
 
 import gradio as gr
+from gradio.components import Component
 import pandas as pd
 from gradio_pdf import PDF
 from pymupdf.mupdf import ll_pdf_annot_modification_date
 
 from src.config import Config, Navigator
-from src.rag.storage import ChromaSlideStore, SearchResultPage, SearchResultPresentation
+from src.rag.storage import (ChromaSlideStore, SearchResultPage,
+                             SearchResultPresentation)
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +124,7 @@ class RagInterface:
                         label="Search Query",
                         placeholder="Enter your search query...",
                         lines=3,
+                        elem_id="query"
                     )
                     with gr.Row():
                         n_results = gr.Number(
@@ -131,6 +134,7 @@ class RagInterface:
                             maximum=10,
                             value=3,
                             step=1,
+                            elem_id="n_pres"
                         )
                         n_pages_per_pres = gr.Number(
                             label="Number of pages per presentation",
@@ -139,6 +143,7 @@ class RagInterface:
                             maximum=5,
                             value=2,
                             step=1,
+                            elem_id="n_pages"
                         )
                         max_distance = gr.Number(
                             label="Maximum Distance",
@@ -147,6 +152,7 @@ class RagInterface:
                             maximum=2.0,
                             value=2.0,
                             step=0.1,
+                            elem_id="max_distance"
                         )
 
                         search_btn = gr.Button("Search", size="lg", scale=3)
@@ -175,17 +181,11 @@ class RagInterface:
             # Wire up the search function
             search_btn.click(
                 fn=self._search,
-                inputs=[query, n_results, n_pages_per_pres, max_distance],
+                inputs={query, n_results, n_pages_per_pres, max_distance},
                 outputs=[item for pair in result_components for item in pair],
             )
 
-    def _search(
-        self,
-        query: str,
-        n_results: int,
-        n_pages: int,
-        max_distance: float,
-    ) -> List[gr.components.Component]:
+    def _search(self, inputs: Dict[Component, str]) -> List[gr.components.Component]:
         """Search presentations and format results
 
         Args:
@@ -196,15 +196,25 @@ class RagInterface:
         Returns:
             List of components to update in UI
         """
+        # Convert keys from gradio components to strings of element ids
+        inputs_dict = dict()
+        for k, v in inputs.items():
+            elem_id = k.elem_id
+            if elem_id:
+                inputs_dict[elem_id] = v
+            else:
+                elem_label = k.label
+                logger.error(f"Element '{elem_label}' has no id")
+
         try:
             # Search presentations
             results = self.store.search_query_presentations(
-                query=query,
-                n_results=n_results,
-                max_distance=max_distance,
-                n_slides_per_presentation=n_pages,
+                query=inputs_dict["query"],
+                n_results=inputs_dict["n_pres"],
+                max_distance=inputs_dict["max_distance"],
+                n_slides_per_presentation=inputs_dict["n_pages"],
             )
-
+            # import pdb; pdb.set_trace()
             # Prepare outputs for all possible tabs
             outputs = []
             for i in range(3):
@@ -218,8 +228,8 @@ class RagInterface:
                             # PDF component
                             PDF(
                                 value=str(pdf_path),
-                                starting_page=page
-                                + 1,  # Pages are 0-based in store but 1-based in PDF
+                                # Pages are 0-based in store but 1-based in PDF
+                                starting_page=page + 1,
                                 visible=True,
                             ),
                             # Results text
