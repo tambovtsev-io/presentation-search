@@ -178,57 +178,80 @@ class RagInterface:
                 return new_results
 
             # Wire up the search function
-            search_btn.click(
-                fn=update_results,
-                inputs={query, n_pres, n_pages, max_distance, results},
-                outputs=results
-            )
+            # search_btn.click(
+            #     fn=update_results,
+            #     inputs={query, n_pres, n_pages, max_distance, results},
+            #     outputs=results
+            # )
 
             # Results container
-            @gr.render(inputs=results)
-            def display_results(results_list):
-                result_components = []
-                # import pdb; pdb.set_trace()
-                print(len(results_list))
-                for i, result in enumerate(results_list):
-                    text, pdf_path, page = format_presentation_results(result)
-                    pdf_path = self.nav.get_absolute_path(pdf_path)
-                    with gr.Column():
-                        # with gr.Tabs():
-                            # Create 3 identical result tabs
-                            # result_tab = []
-                            # with gr.Tab(f"Result {i+1}"):
-                                with gr.Column():
-                                    # PDF viewer
-                                    pdf = PDF(
-                                        value=str(pdf_path),
-                                        # Pages are 0-based in store but 1-based in PDFvalue=result
-                                        starting_page=page + 1,
-                                        label="Presentation",
-                                        height=self.output_height,
-                                        interactive=False,
-                                        container=False,
-                                        # render=False,
-                                        visible=True,
-                                    )
-                                    # pdf.render()
-                                    # gr.Markdown(value="#### very certain")
-                            # result_tab = [pdf, sertainty]
+            result_components = []
+            n_results = 10
+            for i in range(n_results):
+                with gr.Group() as g:
+                    with gr.Tabs():
+                        # Create 3 identical result tabs
+                        with gr.Tab(f"Result {i+1}"):
+                            with gr.Column():
+                                # PDF viewer
+                                pdf = PDF(
+                                    # value=str(pdf_path),
+                                    # Pages are 0-based in store but 1-based in PDFvalue=result
+                                    # starting_page=page + 1,
+                                    label="Presentation",
+                                    height=self.output_height,
+                                    interactive=False,
+                                    container=False,
+                                    visible=True,
+                                )
+                                certainty = gr.Markdown() # value="#### very certain"
+                        # result_tab = [pdf, certainty]
 
-                            # with gr.Tab(f"Details"):
-                            #     # Results text
-                            #     with gr.Column(variant="panel"):
-                            #         gr.Markdown(
-                            #             value=text,
-                            #             label="Search Results",
-                            #             height=self.output_height,
-                            #             visible=True,
-                            #         )
-                                # details_tab = [details_text]
-                            # result_components.append([result_tab, details_tab])
+                        with gr.Tab(f"Details"):
+                            # Results text
+                            with gr.Column(variant="panel"):
+                                details_text = gr.Markdown(
+                                    # value=text,
+                                    label="Search Results",
+                                    height=self.output_height,
+                                    visible=True,
+                                )
+                            details_tab = [details_text]
+                        result_components.extend([g, pdf, certainty, details_text])
 
+            def fill_components(inputs):
+                new_results = self.store.search_query_presentations(
+                    query=inputs[query],
+                    n_results=inputs[n_pres],
+                    max_distance=inputs[max_distance],
+                    n_slides_per_presentation=inputs[n_pages],
+                )
+                outputs = []
+                for i in range(10):
+                    if i < len(new_results):
+                        r = new_results[i]
+                        text, pdf_path, page = format_presentation_results(r)
+                        visible = True
+                        pdf = PDF(value=str(pdf_path), starting_page=page+1)
+                        certainty = gr.Markdown(value="## GOOD")
+                        description = gr.Markdown(value=text)
+                    else:
+                        visible = False
+                        pdf = PDF(visible=False)
+                        certainty = gr.Markdown(visible=False)
+                        description = gr.Markdown(visible=False)
+                    outputs.extend([pdf, certainty, description])
+
+                return outputs
+
+            # Wire up the search function
+            search_btn.click(
+                fn=fill_components,
+                inputs={query, n_pres, n_pages, max_distance, results},
+                outputs=result_components
+            )
             # display_results(results)
-        app.launch(**kwargs)
+        app.launch(ssr_mode=False, **kwargs)
 
 
 def run_app(store: ChromaSlideStore, **kwargs):
