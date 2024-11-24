@@ -5,14 +5,14 @@ from textwrap import dedent
 from typing import Dict, List, Optional, Tuple
 
 import gradio as gr
-from gradio.components import Component
 import pandas as pd
+from gradio.components import Component
 from gradio_pdf import PDF
+from pydantic import BaseModel
 from pymupdf.mupdf import ll_pdf_annot_modification_date
 
 from src.config import Config, Navigator
-from src.rag.storage import (ChromaSlideStore, SearchResultPage,
-                             SearchResultPresentation)
+from src.rag.storage import ChromaSlideStore, SearchResultPage, SearchResultPresentation
 
 logger = logging.getLogger(__name__)
 
@@ -110,11 +110,19 @@ class RagInterface:
 
         # Create interface
         self.interface = gr.Blocks()
-        self._build_interface()
 
-    def _build_interface(self):
+        # Config
+        self.output_height = 500
+
+        # Set states
+        self.results_stor = gr.State([])
+
+        # self.interface = self._build_interface()
+
+    def launch(self, **kwargs):
         """Build Gradio interface layout"""
-        with self.interface:
+
+        with gr.Blocks() as app:
             gr.Markdown("# Presentation Search")
 
             with gr.Row():
@@ -124,26 +132,26 @@ class RagInterface:
                         label="Search Query",
                         placeholder="Enter your search query...",
                         lines=3,
-                        elem_id="query"
+                        elem_id="query",
                     )
                     with gr.Row():
-                        n_results = gr.Number(
+                        n_pres = gr.Number(
                             label="Number of Presentations",
                             scale=1,
                             minimum=1,
                             maximum=10,
-                            value=3,
+                            value=1,
                             step=1,
-                            elem_id="n_pres"
+                            elem_id="n_pres",
                         )
-                        n_pages_per_pres = gr.Number(
+                        n_pages = gr.Number(
                             label="Number of pages per presentation",
                             scale=1,
                             minimum=1,
                             maximum=5,
-                            value=2,
+                            value=3,
                             step=1,
-                            elem_id="n_pages"
+                            elem_id="n_pages",
                         )
                         max_distance = gr.Number(
                             label="Maximum Distance",
@@ -152,109 +160,75 @@ class RagInterface:
                             maximum=2.0,
                             value=2.0,
                             step=0.1,
-                            elem_id="max_distance"
+                            elem_id="max_distance",
                         )
 
                         search_btn = gr.Button("Search", size="lg", scale=3)
 
-            # Results container
-            with gr.Column(scale=3):
-                with gr.Tabs() as results_tabs:
-                    # Create 3 identical result tabs
-                    result_components = []
-                    for i in range(3):
-                        with gr.Tab(f"Result {i+1}"):
-                            with gr.Column():
-                                # PDF viewer
-                                pdf = PDF(
-                                    label="Presentation",
-                                    height=500,
-                                    interactive=False,
-                                    visible=False,
-                                )
-                                # Results text
-                                results = gr.Markdown(
-                                    label="Search Results", visible=False
-                                )
-                            result_components.append((pdf, results))
+            # Adding results functionality
+            results = gr.State([])
+            print(results)
+            def update_results(inputs):
+                new_results = self.store.search_query_presentations(
+                    query=inputs[query],
+                    n_results=inputs[n_pres],
+                    max_distance=inputs[max_distance],
+                    n_slides_per_presentation=inputs[n_pages],
+                )
+                return new_results
 
             # Wire up the search function
             search_btn.click(
-                fn=self._search,
-                inputs={query, n_results, n_pages_per_pres, max_distance},
-                outputs=[item for pair in result_components for item in pair],
+                fn=update_results,
+                inputs={query, n_pres, n_pages, max_distance, results},
+                outputs=results
             )
 
-    def _search(self, inputs: Dict[Component, str]) -> List[gr.components.Component]:
-        """Search presentations and format results
+            # Results container
+            @gr.render(inputs=results)
+            def display_results(results_list):
+                result_components = []
+                # import pdb; pdb.set_trace()
+                print(len(results_list))
+                for i, result in enumerate(results_list):
+                    text, pdf_path, page = format_presentation_results(result)
+                    pdf_path = self.nav.get_absolute_path(pdf_path)
+                    with gr.Column():
+                        # with gr.Tabs():
+                            # Create 3 identical result tabs
+                            # result_tab = []
+                            # with gr.Tab(f"Result {i+1}"):
+                                with gr.Column():
+                                    # PDF viewer
+                                    pdf = PDF(
+                                        value=str(pdf_path),
+                                        # Pages are 0-based in store but 1-based in PDFvalue=result
+                                        starting_page=page + 1,
+                                        label="Presentation",
+                                        height=self.output_height,
+                                        interactive=False,
+                                        container=False,
+                                        # render=False,
+                                        visible=True,
+                                    )
+                                    # pdf.render()
+                                    # gr.Markdown(value="#### very certain")
+                            # result_tab = [pdf, sertainty]
 
-        Args:
-            query: Search query text
-            n_results: Number of presentations to return
-            max_distance: Maximum cosine distance threshold
+                            # with gr.Tab(f"Details"):
+                            #     # Results text
+                            #     with gr.Column(variant="panel"):
+                            #         gr.Markdown(
+                            #             value=text,
+                            #             label="Search Results",
+                            #             height=self.output_height,
+                            #             visible=True,
+                            #         )
+                                # details_tab = [details_text]
+                            # result_components.append([result_tab, details_tab])
 
-        Returns:
-            List of components to update in UI
-        """
-        # Convert keys from gradio components to strings of element ids
-        inputs_dict = dict()
-        for k, v in inputs.items():
-            elem_id = k.elem_id
-            if elem_id:
-                inputs_dict[elem_id] = v
-            else:
-                elem_label = k.label
-                logger.error(f"Element '{elem_label}' has no id")
-
-        try:
-            # Search presentations
-            results = self.store.search_query_presentations(
-                query=inputs_dict["query"],
-                n_results=inputs_dict["n_pres"],
-                max_distance=inputs_dict["max_distance"],
-                n_slides_per_presentation=inputs_dict["n_pages"],
-            )
-            # import pdb; pdb.set_trace()
-            # Prepare outputs for all possible tabs
-            outputs = []
-            for i in range(3):
-                if i < len(results):
-                    # Format this result
-                    text, pdf_path, page = format_presentation_results(results[i])
-
-                    # Add components: PDF viewer and results text
-                    outputs.extend(
-                        [
-                            # PDF component
-                            PDF(
-                                value=str(pdf_path),
-                                # Pages are 0-based in store but 1-based in PDF
-                                starting_page=page + 1,
-                                visible=True,
-                            ),
-                            # Results text
-                            gr.Markdown(value=text, visible=True),
-                        ]
-                    )
-                else:
-                    # Hide unused tabs
-                    outputs.extend(
-                        [
-                            PDF(visible=False),
-                            gr.Markdown(visible=False),
-                        ]
-                    )
-
-            return outputs
-
-        except Exception as e:
-            logger.exception("Search failed")
-            # Return empty results on error
-            return [PDF(visible=False), gr.Markdown(visible=False)] * 3
-
-    def launch(self, **kwargs):
-        """Launch the Gradio interface"""
-        self.interface.launch(**kwargs)
+            # display_results(results)
+        app.launch(**kwargs)
 
 
 def run_app(store: ChromaSlideStore, **kwargs):
