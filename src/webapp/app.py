@@ -114,10 +114,6 @@ class RagInterface:
         # Config
         self.output_height = 500
 
-        # Set states
-        self.results_stor = gr.State([])
-
-        # self.interface = self._build_interface()
 
     def launch(self, **kwargs):
         """Build Gradio interface layout"""
@@ -167,57 +163,35 @@ class RagInterface:
 
             # Adding results functionality
             results = gr.State([])
-            print(results)
-            def update_results(inputs):
-                new_results = self.store.search_query_presentations(
-                    query=inputs[query],
-                    n_results=inputs[n_pres],
-                    max_distance=inputs[max_distance],
-                    n_slides_per_presentation=inputs[n_pages],
-                )
-                return new_results
-
-            # Wire up the search function
-            # search_btn.click(
-            #     fn=update_results,
-            #     inputs={query, n_pres, n_pages, max_distance, results},
-            #     outputs=results
-            # )
 
             # Results container
             result_components = []
             n_results = 10
             for i in range(n_results):
-                with gr.Group() as g:
+                with gr.Group(visible=True) as g:
                     with gr.Tabs():
                         # Create 3 identical result tabs
                         with gr.Tab(f"Result {i+1}"):
                             with gr.Column():
                                 # PDF viewer
                                 pdf = PDF(
-                                    # value=str(pdf_path),
-                                    # Pages are 0-based in store but 1-based in PDFvalue=result
-                                    # starting_page=page + 1,
                                     label="Presentation",
                                     height=self.output_height,
                                     interactive=False,
                                     container=False,
-                                    visible=True,
+                                    visible=False,
                                 )
-                                certainty = gr.Markdown() # value="#### very certain"
-                        # result_tab = [pdf, certainty]
+                                certainty = gr.Markdown()
 
                         with gr.Tab(f"Details"):
                             # Results text
                             with gr.Column(variant="panel"):
                                 details_text = gr.Markdown(
-                                    # value=text,
                                     label="Search Results",
                                     height=self.output_height,
-                                    visible=True,
+                                    visible=False,
                                 )
-                            details_tab = [details_text]
-                        result_components.extend([g, pdf, certainty, details_text])
+                        result_components.extend([pdf, certainty, details_text])
 
             def fill_components(inputs):
                 new_results = self.store.search_query_presentations(
@@ -231,12 +205,12 @@ class RagInterface:
                     if i < len(new_results):
                         r = new_results[i]
                         text, pdf_path, page = format_presentation_results(r)
-                        visible = True
+                        g = gr.Group(visible=True)
                         pdf = PDF(value=str(pdf_path), starting_page=page+1)
                         certainty = gr.Markdown(value="## GOOD")
                         description = gr.Markdown(value=text)
                     else:
-                        visible = False
+                        g = gr.Group(visible=False)
                         pdf = PDF(visible=False)
                         certainty = gr.Markdown(visible=False)
                         description = gr.Markdown(visible=False)
@@ -248,9 +222,9 @@ class RagInterface:
             search_btn.click(
                 fn=fill_components,
                 inputs={query, n_pres, n_pages, max_distance, results},
-                outputs=result_components
+                outputs=result_components,
             )
-            # display_results(results)
+
         app.launch(ssr_mode=False, **kwargs)
 
 
