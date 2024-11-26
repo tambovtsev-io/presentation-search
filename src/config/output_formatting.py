@@ -299,6 +299,7 @@ def display_search_result_page(
     result: SearchResultPage,
     text_wrapper: Optional[MultilineWrapper] = None,
     display_image: bool = True,
+    display_text: bool = True,
     image_dpi: int = 150,
     figsize: tuple = (7, 7)
 ) -> None:
@@ -330,6 +331,9 @@ def display_search_result_page(
             dpi=image_dpi,
             figsize=figsize
         )
+
+    if not display_text:
+        return
 
     # Display match information
     print(f"\nBest matching chunk ({result.matched_chunk.chunk_type}):")
