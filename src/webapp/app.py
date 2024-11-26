@@ -25,7 +25,7 @@ def format_page_results(result_page: SearchResultPage) -> str:
         f"""\
          ### Page: {result_page.page_num+1}
          **Best matching chunk:** `{result_page.matched_chunk.chunk_type}`\\
-         **Chunk distances:** {result_page.matched_chunk.score:.4f}
+         **Chunk distances:**
          """
     )
 
@@ -84,7 +84,7 @@ def format_presentation_results(
     # Format header
     text = f"## {pdf_path.stem}\n"
     text += f"\n{df_string}\n\n"
-    text += f"**Mean Score:** {pres_result.mean_score:.4f}\n"
+    text += f"**Rank Score:** {pres_result.rank_score:.4f}\n"
 
     # Format individual slides
     for slide in pres_result.slides:
@@ -112,8 +112,20 @@ class RagInterface:
         self.interface = gr.Blocks()
 
         # Config
+        self.n_outputs = 7
         self.output_height = 500
 
+    def rate_response(self, score: float):
+        best_threshold = 0.45
+        ok_threshold = 0.6
+        if score < best_threshold:
+            return "👍" # "💯"
+        if score < ok_threshold:
+            return "👌" # "¯\_(ツ)_/¯"
+        return "👎"
+
+    def calculate_params(self, search_depth: int):
+        return search_depth * 15
 
     def launch(self, **kwargs):
         """Build Gradio interface layout"""
@@ -123,40 +135,21 @@ class RagInterface:
 
             with gr.Row():
                 # Input components
-                with gr.Column(scale=2):
+                with gr.Row():
                     query = gr.Textbox(
                         label="Search Query",
                         placeholder="Enter your search query...",
                         lines=3,
                         elem_id="query",
                     )
-                    with gr.Row():
-                        n_pres = gr.Number(
-                            label="Number of Presentations",
-                            scale=1,
-                            minimum=1,
-                            maximum=10,
-                            value=1,
-                            step=1,
-                            elem_id="n_pres",
-                        )
-                        n_pages = gr.Number(
-                            label="Number of pages per presentation",
+                    with gr.Column():
+                        search_depth = gr.Slider(
+                            label="Depth of Search",
                             scale=1,
                             minimum=1,
                             maximum=5,
                             value=3,
                             step=1,
-                            elem_id="n_pages",
-                        )
-                        max_distance = gr.Number(
-                            label="Maximum Distance",
-                            scale=1,
-                            minimum=0.1,
-                            maximum=2.0,
-                            value=2.0,
-                            step=0.1,
-                            elem_id="max_distance",
                         )
 
                         search_btn = gr.Button("Search", size="lg", scale=3)
@@ -166,8 +159,7 @@ class RagInterface:
 
             # Results container
             result_components = []
-            n_results = 10
-            for i in range(n_results):
+            for i in range(self.n_outputs):
                 with gr.Group(visible=True) as g:
                     with gr.Tabs():
                         # Create 3 identical result tabs
@@ -181,7 +173,6 @@ class RagInterface:
                                     container=False,
                                     visible=False,
                                 )
-                                certainty = gr.Markdown()
 
                         with gr.Tab(f"Details"):
                             # Results text
@@ -191,24 +182,24 @@ class RagInterface:
                                     height=self.output_height,
                                     visible=False,
                                 )
-                        result_components.extend([pdf, certainty, details_text])
+                    certainty = gr.Markdown()
+                    result_components.extend([pdf, certainty, details_text])
 
             def fill_components(inputs):
+                self.calculate_params(search_depth=inputs[search_depth])
                 new_results = self.store.search_query_presentations(
                     query=inputs[query],
-                    n_results=inputs[n_pres],
-                    max_distance=inputs[max_distance],
-                    n_slides_per_presentation=inputs[n_pages],
                 )
                 outputs = []
-                for i in range(10):
+                for i in range(self.n_outputs):
                     if i < len(new_results):
                         r = new_results[i]
                         text, pdf_path, page = format_presentation_results(r)
                         g = gr.Group(visible=True)
-                        pdf = PDF(value=str(pdf_path), starting_page=page+1)
-                        certainty = gr.Markdown(value="## GOOD")
-                        description = gr.Markdown(value=text)
+                        pdf = PDF(value=str(pdf_path), starting_page=page + 1, visible=True)
+                        certainty_symbol = self.rate_response(r.rank_score)
+                        certainty = gr.Markdown(value=f"# Certainty: {certainty_symbol}", visible=True)
+                        description = gr.Markdown(value=text, visible=True)
                     else:
                         g = gr.Group(visible=False)
                         pdf = PDF(visible=False)
@@ -221,7 +212,7 @@ class RagInterface:
             # Wire up the search function
             search_btn.click(
                 fn=fill_components,
-                inputs={query, n_pres, n_pages, max_distance, results},
+                inputs={query, search_depth},
                 outputs=result_components,
             )
 
