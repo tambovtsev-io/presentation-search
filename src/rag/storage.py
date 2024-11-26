@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import chromadb
+import numpy as np
 from chromadb.api.types import QueryResult
 from chromadb.config import Settings
 from langchain.schema import Document
 from langchain_openai.embeddings import OpenAIEmbeddings
+from pandas.core.algorithms import rank
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.chains import PresentationAnalysis, SlideAnalysis
@@ -124,18 +126,40 @@ class SearchResultPresentation(BaseModel):
         return self.slides[0]
 
     @property
+    def slide_scores(self):
+        return [s.best_score for s in self.slides]
+
+    @property
     def best_distance(self) -> float:
         """Get best distance among all slides"""
-        return min(slide.metadata["best_distance"] for slide in self.slides)
+        return min(slide.best_score for slide in self.slides)
 
     @property
     def best_slide(self) -> SearchResultPage:
-        return min(self.slides, key=lambda slide: slide.metadata["best_distance"])
+        return min(self.slides, key=lambda slide: slide.best_score)
 
     @property
     def mean_score(self) -> float:
         scores = [s.best_score for s in self.slides]
         return sum(scores) / len(scores) if len(scores) else float("inf")
+
+    @property
+    def rank_score(self) -> float:  # TODO create a separate class for scoring
+        # Weight with reversed array or indeces
+        scores = np.array(self.slide_scores)
+        n = len(scores)
+        weights = np.arange(n)[::-1] + 1
+        weigthed_score = (scores * weights).sum() / weights.sum()
+
+        # Adjust weighted score
+        k = 2
+        p = 3
+        factor = -k * n / (1 - p * n)
+
+        rank_score = factor * weigthed_score
+        # NOTE For now do not return rank_score
+        return rank_score
+        return weigthed_score
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -174,7 +198,7 @@ class SlideIndexer:
         metadata = dict(
             # Basic slide info
             pdf_path=str(slide.pdf_path),
-            page_num=str(slide.page_num), # BUG: why str?
+            page_num=str(slide.page_num),  # BUG: why str?
             # Chunk specific
             chunk_type=chunk_type,
             slide_id=f"{slide.pdf_path.stem}__{slide.page_num}",
@@ -396,7 +420,7 @@ class ChromaSlideStore:
             chunk_types: Optional list of chunk types to search in
                 (e.g. ["conclusions_and_insights", "topic_overview"])
             n_results: Number of results to return
-            max_score: Minimum distance threshold
+            max_score: Maximum distance threshold
             metadata_filter: Additional metadata filters
 
         Returns:
@@ -415,7 +439,7 @@ class ChromaSlideStore:
         # Query with embeddings
         results = self.query_storage(
             query=query,
-            n_results=n_results * 5,  # Get more to filter by score
+            n_results=n_results,  # Get more to filter by score
             where=where_filter,
         )
 
@@ -451,7 +475,6 @@ class ChromaSlideStore:
             chunk_types: Optional list of chunk types to search in
             n_results: Number of results to return
             max_distance: Maximum cosine distance threshold
-                (0 = identical, 1 = unrelated, 2 = opposite)
             metadata_filter: Additional metadata filters
 
         Returns:
@@ -461,7 +484,7 @@ class ChromaSlideStore:
         search_results = self.search_query(
             query=query,
             chunk_types=chunk_types,
-            n_results=n_results * 3,  # Get more to handle duplicates
+            n_results=n_results,  # * 3,  # Get more to ensure different pages
             max_score=max_distance,
             metadata_filter=metadata_filter,
         )
@@ -511,14 +534,14 @@ class ChromaSlideStore:
             # if len(page_results) == n_results:
             #     break
 
-        return page_results # [:n_results]
+        return page_results  # [:n_results]
 
     def search_query_presentations(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
-        n_results: int = 3,
-        n_slides_per_presentation: int = 3,
+        n_results: int = 30,
+        # n_slides_per_presentation: int = 3,
         max_distance: float = 2.0,
         metadata_filter: Optional[Dict] = None,
     ) -> List[SearchResultPresentation]:
@@ -528,9 +551,8 @@ class ChromaSlideStore:
             query: Search query text
             chunk_types: Optional list of chunk types to search in
             n_results: Number of presentations to return
-            n_slides_per_presentation: Maximum slides per presentation
+            # n_slides_per_presentation: Maximum slides per presentation
             max_distance: Maximum cosine distance threshold
-                (0 = identical, 1 = unrelated, 2 = opposite)
             metadata_filter: Additional metadata filters
 
         Returns:
@@ -540,7 +562,7 @@ class ChromaSlideStore:
         search_results = self.search_query_pages(
             query=query,
             chunk_types=chunk_types,
-            n_results=n_results * n_slides_per_presentation,
+            n_results=n_results,
             max_distance=max_distance,
             metadata_filter=metadata_filter,
         )
@@ -558,8 +580,7 @@ class ChromaSlideStore:
                 presentations_map[pres_name] = []
 
             # Add result if we haven't reached the per-presentation limit
-            if len(presentations_map[pres_name]) < n_slides_per_presentation:
-                presentations_map[pres_name].append(result)
+            presentations_map[pres_name].append(result)
 
         # Convert to SearchResultPresentation objects
         presentation_results = []
@@ -582,9 +603,10 @@ class ChromaSlideStore:
             #     break
 
         # TODO: Gotta check different ways to sort
-        presentation_results.sort(key=lambda x: x.mean_score)
+        presentation_results.sort(key=lambda x: x.rank_score)
+        # presentation_results.sort(key=lambda x: x.mean_score)
 
-        return presentation_results # [:n_results]
+        return presentation_results  # [:n_results]
 
     def get_by_metadata(
         self, metadata_filter: Dict, n_results: Optional[int] = None
