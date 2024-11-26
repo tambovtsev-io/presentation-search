@@ -118,6 +118,8 @@ def get_pres_analysis_df(base: Path = Navigator().interim) -> pd.DataFrame:
                     pres_path=slide.pdf_path,
                     pres_title=pres.name,
                     page=slide.page_num,
+                    # Unparsed text
+                    llm_output=slide.llm_output,
                     # Parsed texts
                     text_content=slide.parsed_output.text_content,
                     visual_content=slide.parsed_output.visual_content,
