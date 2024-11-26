@@ -27,7 +27,7 @@
 В проекте используется dvc. Для каждой задачи подгружается свой датасет. Идея: не надо загружать 200 презентаций, если хочется перепроверить тестовую задачу с 10 слайдами. [Подробнее про dvc](./docs/workflow/data_version_control.md)
 
 ## Progress
-Гугл-диск с презентациями (https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
+[Гугл-диск с презентациями](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
 
 **Вкатываемся в Document Understanding**
 
