@@ -2,9 +2,9 @@
 
 ## Ссылки
 ### Навигация по проекту
-- [System Design Document](/docs/system_design_doc.md)
-- [Документация](/docs)
-- [Ноутбуки](/notebooks/)
+- [System Design Document](docs/system_design_doc.md)
+- [Документация](docs)
+- [Ноутбуки](notebooks/)
 
 ### Raftds
 - [Jira](https://jira.raftds.com/secure/RapidBoard.jspa?rapidView=98&projectKey=RMI&selectedIssue=RMI-40)
@@ -13,7 +13,7 @@
 
 ## Технические моменты
 ### Работа с данными
-В проекте используется dvc. Для каждой задачи подгружается свой датасет. Идея: не надо загружать 200 презентаций, если хочется перепроверить тестовую задачу с 10 слайдами. [Подробнее про dvc](./docs/workflow/data_version_control.md)
+В проекте используется dvc. Для каждой задачи подгружается свой датасет. Идея: не надо загружать 200 презентаций, если хочется перепроверить тестовую задачу с 10 слайдами. [Подробнее про dvc](docs/workflow/data_version_control.md)
 
 ## Progress
 [Гугл-диск с презентациями](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
@@ -25,7 +25,7 @@
 3. [Ноутбук с ресерчем про разрешения картинки](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/weird-slides/lowering_img_quality.ipynb)
 4. [Ноутбук с разрешениями презентаций и расчетом цен](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/weird-slides/lowering_img_quality.ipynb)
 
-**Описания презентаций** 
+**Описания презентаций**
 
 5. [Ноутбук с примерами форматированных описаний](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/prompts/testing_prompts.ipynb)
 6. [Ноутбук с распределением количества токенов в полученных описаниях](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/a71ffa99b9a223440210918f5bbcfff91aa040a5/notebooks/data_description/count_descriptions.ipynb)
