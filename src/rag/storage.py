@@ -1,7 +1,7 @@
 import logging
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import chromadb
 import numpy as np
@@ -15,6 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.chains import PresentationAnalysis, SlideAnalysis
 from src.chains.prompts import JsonH1AndGDPrompt
 from src.config.navigator import Navigator
+from src.rag import BaseScorer, HyperbolicScorer
+from src.rag import ScorerTypes
+from src.rag.score import MinScorer
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +95,8 @@ class SearchResultPage(BaseModel):
         return self.matched_chunk.slide_id
 
     @property
-    def pdf_path(self):
-        return self.matched_chunk.pdf_path
+    def pdf_path(self) -> Path:
+        return Path(self.matched_chunk.pdf_path)
 
     @property
     def pdf_name(self):
@@ -119,11 +122,31 @@ class SearchResultPresentation(BaseModel):
     slides: List[SearchResultPage] = Field(
         description="Matching slides from this presentation"
     )
+    scorer: ScorerTypes = MinScorer()
     metadata: Dict = Field(default_factory=dict)
 
+    def __getitem__(self, idx) -> SearchResultPage:
+        return self.slides[idx]
+
+    def __len__(self) -> int:
+        return len(self.slides)
+
+    def set_scorer(self, scorer: BaseScorer):
+        self.scorer = scorer
+
     @property
-    def pdf_path(self):
-        return self.slides[0]
+    def rank_score(self) -> float:
+        if self.scorer is None:
+            raise AttributeError("Scorer not set")
+        return self.scorer.compute_score(self.slide_scores)
+
+    @property
+    def pdf_path(self) -> Path:
+        return Path(self.slides[0].pdf_path)
+
+    @property
+    def title(self) -> str:
+        return self.pdf_path.stem
 
     @property
     def slide_scores(self):
@@ -143,23 +166,44 @@ class SearchResultPresentation(BaseModel):
         scores = [s.best_score for s in self.slides]
         return sum(scores) / len(scores) if len(scores) else float("inf")
 
-    @property
-    def rank_score(self) -> float:  # TODO create a separate class for scoring
-        # Weight with reversed array or indeces
-        scores = np.array(self.slide_scores)
-        n = len(scores)
-        weights = np.arange(n)[::-1] + 1
-        weigthed_score = (scores * weights).sum() / weights.sum()
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-        # Adjust weighted score
-        k = 2
-        p = 3
-        factor = -k * n / (1 - p * n)
 
-        rank_score = factor * weigthed_score
-        # NOTE For now do not return rank_score
-        return rank_score
-        return weigthed_score
+class ScoredPresentations(BaseModel):
+    """Container for search results with scoring mechanism"""
+
+    presentations: List[SearchResultPresentation] = Field(
+        description="List of presentations to score"
+    )
+    scorer: ScorerTypes = Field(
+        default_factory=lambda: HyperbolicScorer(),
+        description="Scoring mechanism",
+    )
+
+    def model_post_init(self, __context: Any) -> None:
+        self.sort_presentations()
+
+        for p in self.presentations:
+            p.set_scorer(self.scorer)
+
+        return super().model_post_init(__context)
+
+    def __getitem__(self, idx) -> SearchResultPresentation:
+        return self.presentations[idx]
+
+    def __len__(self):
+        return len(self.presentations)
+
+    def sort_presentations(self):
+        self.presentations.sort(key=lambda p: self.scorer.compute_score(p.slide_scores))
+
+    def set_scorer(self, scorer: BaseScorer):
+        self.scorer = scorer
+        self.sort_presentations()
+
+    def get_scores(self) -> List[float]:
+        """Get scores for all presentations"""
+        return [self.scorer.compute_score(p.slide_scores) for p in self.presentations]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -541,17 +585,17 @@ class ChromaSlideStore:
         query: str,
         chunk_types: Optional[List[str]] = None,
         n_results: int = 30,
-        # n_slides_per_presentation: int = 3,
+        scorer: BaseScorer = HyperbolicScorer(),
         max_distance: float = 2.0,
         metadata_filter: Optional[Dict] = None,
-    ) -> List[SearchResultPresentation]:
+    ) -> ScoredPresentations:
         """Search presentations based on query and return grouped results
 
         Args:
             query: Search query text
             chunk_types: Optional list of chunk types to search in
             n_results: Number of presentations to return
-            # n_slides_per_presentation: Maximum slides per presentation
+            scorer: Scoring object
             max_distance: Maximum cosine distance threshold
             metadata_filter: Additional metadata filters
 
@@ -602,11 +646,7 @@ class ChromaSlideStore:
             # if len(presentation_results) == n_results:
             #     break
 
-        # TODO: Gotta check different ways to sort
-        presentation_results.sort(key=lambda x: x.rank_score)
-        # presentation_results.sort(key=lambda x: x.mean_score)
-
-        return presentation_results  # [:n_results]
+        return ScoredPresentations(presentations=presentation_results, scorer=scorer)
 
     def get_by_metadata(
         self, metadata_filter: Dict, n_results: Optional[int] = None
