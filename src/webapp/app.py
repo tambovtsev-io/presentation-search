@@ -62,8 +62,8 @@ def format_page_results(result_page: SearchResultPage) -> str:
 
 
 def format_presentation_results(
-    pres_result: SearchResultPresentation,
-) -> Tuple[str, Path, int]:
+        pres_result: SearchResultPresentation, n_pages: Optional[int] = None
+) -> str:
     """Format single presentation results"""
     # Get best matching page
     best_slide = pres_result.best_slide
@@ -87,11 +87,11 @@ def format_presentation_results(
     text += f"**Rank Score:** {pres_result.rank_score:.4f}\n"
 
     # Format individual slides
-    for slide in pres_result.slides:
-        text += format_page_results(slide)
-        text += "\n\n---\n\n"
+    for i in range(n_pages or len(pres_result)):
+        text += format_page_results(pres_result[i])
+        text += "\n---\n\n"
 
-    return text, pdf_path, page_num
+    return text
 
 
 class RagInterface:
@@ -116,12 +116,12 @@ class RagInterface:
         self.output_height = 500
 
     def rate_response(self, score: float):
-        best_threshold = 0.45
+        best_threshold = 0.37
         ok_threshold = 0.6
         if score < best_threshold:
-            return "👍" # "💯"
+            return "👍"  # "💯"
         if score < ok_threshold:
-            return "👌" # "¯\_(ツ)_/¯"
+            return "👌"  # "¯\_(ツ)_/¯"
         return "👎"
 
     def calculate_params(self, search_depth: int):
@@ -193,12 +193,19 @@ class RagInterface:
                 outputs = []
                 for i in range(self.n_outputs):
                     if i < len(new_results):
-                        r = new_results[i]
-                        text, pdf_path, page = format_presentation_results(r)
+                        pres_result = new_results[i]
+                        text = format_presentation_results(pres_result)
+                        pdf_path = pres_result.pdf_path
+                        page = pres_result[0].page_num
+
                         g = gr.Group(visible=True)
-                        pdf = PDF(value=str(pdf_path), starting_page=page + 1, visible=True)
-                        certainty_symbol = self.rate_response(r.rank_score)
-                        certainty = gr.Markdown(value=f"# Certainty: {certainty_symbol}", visible=True)
+                        pdf = PDF(
+                            value=str(pdf_path), starting_page=page + 1, visible=True
+                        )
+                        certainty_symbol = self.rate_response(pres_result.rank_score)
+                        certainty = gr.Markdown(
+                            value=f"# Certainty: {certainty_symbol}", visible=True
+                        )
                         description = gr.Markdown(value=text, visible=True)
                     else:
                         g = gr.Group(visible=False)
