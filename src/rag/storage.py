@@ -15,8 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.chains import PresentationAnalysis, SlideAnalysis
 from src.chains.prompts import JsonH1AndGDPrompt
 from src.config.navigator import Navigator
-from src.rag import BaseScorer, HyperbolicScorer
-from src.rag import ScorerTypes
+from src.rag import BaseScorer, HyperbolicScorer, ScorerTypes
 from src.rag.score import MinScorer
 
 logger = logging.getLogger(__name__)
@@ -44,6 +43,8 @@ class ScoredChunk(BaseModel):
     document: Document
     score: float
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     @property
     def slide_id(self) -> str:
         """Get slide identifier from metadata"""
@@ -65,8 +66,6 @@ class ScoredChunk(BaseModel):
     @property
     def page_num(self) -> int:
         return int(self.document.metadata["page_num"])
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SearchResult(BaseModel):
@@ -90,6 +89,8 @@ class SearchResultPage(BaseModel):
         description="Distance scores by chunk type (None if not matched)"
     )
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     @property
     def slide_id(self):
         return self.matched_chunk.slide_id
@@ -110,8 +111,6 @@ class SearchResultPage(BaseModel):
     def page_num(self):
         return self.matched_chunk.page_num
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
 class SearchResultPresentation(BaseModel):
     """Container for presentation-level search results
@@ -124,6 +123,8 @@ class SearchResultPresentation(BaseModel):
     )
     scorer: ScorerTypes = MinScorer()
     metadata: Dict = Field(default_factory=dict)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __getitem__(self, idx) -> SearchResultPage:
         return self.slides[idx]
@@ -154,7 +155,6 @@ class SearchResultPresentation(BaseModel):
 
     @property
     def best_distance(self) -> float:
-        """Get best distance among all slides"""
         return min(slide.best_score for slide in self.slides)
 
     @property
@@ -165,8 +165,6 @@ class SearchResultPresentation(BaseModel):
     def mean_score(self) -> float:
         scores = [s.best_score for s in self.slides]
         return sum(scores) / len(scores) if len(scores) else float("inf")
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ScoredPresentations(BaseModel):
@@ -179,6 +177,8 @@ class ScoredPresentations(BaseModel):
         default_factory=lambda: HyperbolicScorer(),
         description="Scoring mechanism",
     )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
         self.sort_presentations()
@@ -202,10 +202,7 @@ class ScoredPresentations(BaseModel):
         self.sort_presentations()
 
     def get_scores(self) -> List[float]:
-        """Get scores for all presentations"""
         return [self.scorer.compute_score(p.slide_scores) for p in self.presentations]
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SlideIndexer:
