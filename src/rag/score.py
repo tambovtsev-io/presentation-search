@@ -12,7 +12,7 @@ class BaseScorer(BaseModel):
     @property
     def id(self) -> str:
         """Unique identifier for the scoring method"""
-        return self.__class__.__name__.lower()
+        return self.__class__.__name__.lower().replace("scorer", "")
 
     def compute_score(self, distances: List[float]) -> float:
         """Compute aggregated score from distances"""
@@ -47,20 +47,27 @@ class HyperbolicScorer(BaseScorer):
 
     @property
     def id(self) -> str:
-        return f"hyperbolic_k{self.k}_p{self.p}"
+        class_name = super(HyperbolicScorer, self).id
+        return f"{class_name}_k{self.k}_p{self.p}"
+
+    def adjustment_factor(self, n: float) -> float:
+        factor = -self.k * n / (1 - self.p * n)
+        return factor
 
     def compute_score(self, distances: List[float]) -> float:
-        """Adjust weighted score with hyperbolic function."""
-        dists = np.array(distances)
         n = len(distances)
+        score = min(distances)
+        factor = self.adjustment_factor(n)
+        return factor * score
 
-        # Compute weighted score
-        weights = np.arange(n)[::-1] + 1
-        weighted_score = (dists * weights).sum() / weights.sum()
 
-        # Apply adjustment factor
-        factor = -self.k * n / (1 - self.p * n)
-        return factor * weighted_score
+class HyperbolicWeightedScorer(HyperbolicScorer):
+    def compute_score(self, distances: List[float]) -> float:
+        n = len(distances)
+        w_scorer = WeightedScorer()
+        w_score = w_scorer.compute_score(distances)
+
+        return self.adjustment_factor(n) * w_score
 
 
 class ExponentialScorer(BaseScorer):
@@ -81,28 +88,34 @@ class ExponentialScorer(BaseScorer):
         s: Shift in x
     """
 
-    a: float = 0.68  # Asymptote
+    a: float = 0.7  # Asymptote
     w: float = 1.7  # Width
     s: float = 2.8  # x-shift
 
     @property
     def id(self) -> str:
-        return f"exponential_a{self.a}_w{self.w}_s{self.s}"
+        class_name = super().id
+        return f"{class_name}_a{self.a}_w{self.w}_s{self.s}"
 
-    def compute_score(self, distances: List[float]) -> float:
-        """Adjust weighted score with exponential function."""
-        n = len(distances)
-
-        # Compute weighted score
-        w_scorer = WeightedScorer()
-        weighted_score = w_scorer.compute_score(distances)
-
-        # Apply adjustment factor
+    def adjustment_factor(self, n: float):
         a, w, s = self.a, self.w, self.s
         factor = a + (1 - a) * (n + s) ** 2 * np.exp(-n / s) / (
             (1 + s) ** 2 * np.exp(-1 / w)
         )
-        return factor * weighted_score
+        return factor
+
+    def compute_score(self, distances: List[float]) -> float:
+        n = len(distances)
+        score = min(distances)
+        return self.adjustment_factor(n) * score
+
+
+class ExponentialWeightedScorer(ExponentialScorer):
+    def compute_score(self, distances: List[float]) -> float:
+        n = len(distances)
+        w_scorer = WeightedScorer()
+        w_score = w_scorer.compute_score(distances)
+        return self.adjustment_factor(n) * w_score
 
 
 class StepScorer(BaseScorer):
@@ -182,7 +195,9 @@ ScorerTypes = Union[
     MinScorer,
     WeightedScorer,
     HyperbolicScorer,
+    HyperbolicWeightedScorer,
     ExponentialScorer,
+    ExponentialWeightedScorer,
     StepScorer,
     LinearScorer,
 ]
