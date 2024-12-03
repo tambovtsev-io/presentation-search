@@ -17,11 +17,10 @@ class ModelConfig:
     Configuration class for loading different language models.
     Provides methods to load various model providers.
     """
+
     def load_vsegpt(
-        self,
-        model: str = "vis-openai/gpt-4o-mini",
-        temperature: float = 0.2
-    ) -> BaseLanguageModel:
+        self, model: str = "vis-openai/gpt-4o-mini", temperature: float = 0.2
+    ) -> ChatOpenAI:
         """Load VSEGPT OpenAI-compatible model.
 
         Args:
@@ -35,17 +34,12 @@ class ModelConfig:
         api_key = os.environ["VSEGPT_API_KEY"]
 
         return ChatOpenAI(
-            base_url=api_base,
-            model=model,
-            api_key=api_key,
-            temperature=temperature
+            base_url=api_base, model=model, api_key=api_key, temperature=temperature
         )
 
     def load_openai(
-        self,
-        model: str = "gpt-4o-mini",
-        temperature: float = 0.2
-    ) -> BaseLanguageModel:
+        self, model: str = "gpt-4o-mini", temperature: float = 0.2
+    ) -> ChatOpenAI:
         """Load OpenAI model.
 
         Args:
@@ -57,11 +51,7 @@ class ModelConfig:
         """
         api_key = os.environ["OPENAI_API_KEY"]
 
-        return ChatOpenAI(
-            model=model,
-            api_key=api_key,
-            temperature=temperature
-        )
+        return ChatOpenAI(model=model, api_key=api_key, temperature=temperature)
 
     def load_echo_llm(self) -> EchoLLM:
         return EchoLLM()
