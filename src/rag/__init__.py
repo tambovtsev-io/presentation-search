@@ -14,5 +14,6 @@ from src.rag.storage import (
     SearchResultPage,
     SearchResultPresentation,
     SlideIndexer,
+    SlideRetriever,
     create_slides_database,
 )
