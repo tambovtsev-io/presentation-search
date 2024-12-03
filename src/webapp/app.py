@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 def format_page_results(result_page: SearchResultPage) -> str:
-    """Format individual slide results as markdown text"""
+    """Format individual slide results as markdown
+    text specifically for the webapp.
+    """
     chunks = result_page.slide_chunks
 
     text = dedent(
@@ -28,11 +30,6 @@ def format_page_results(result_page: SearchResultPage) -> str:
          **Chunk distances:**
          """
     )
-
-    # chunk_distances_str = ""
-    # for chunk_type, distance in result_page.chunk_distances.items():
-    #     distance_str = f"{distance:.4f}" if distance else "`not matched`"
-    #     chunk_distances_str += f"{chunk_type}: {distance_str}\\\n"
 
     chunk_df = (
         pd.DataFrame(result_page.chunk_distances, index=["distance"])
@@ -62,9 +59,9 @@ def format_page_results(result_page: SearchResultPage) -> str:
 
 
 def format_presentation_results(
-        pres_result: SearchResultPresentation, n_pages: Optional[int] = None
+    pres_result: SearchResultPresentation, n_pages: Optional[int] = None
 ) -> str:
-    """Format single presentation results"""
+    """Format single presentation results specifically for the webapp"""
     # Get best matching page
     best_slide = pres_result.best_slide
     pdf_path = Path(best_slide.pdf_path)
