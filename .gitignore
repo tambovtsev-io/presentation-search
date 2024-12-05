@@ -1,4 +1,4 @@
-# Data. Ignores are handled by `dvc add /path`. This creates .gitignore in the specified directories. 
+# Data. Ignores are handled by `dvc add /path`. This creates .gitignore in the specified directories.
 # The following dirs are gitignored for now.
 /data/external
 /data/interim
@@ -175,3 +175,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Folder for gradio private data
+.gradio
+data/work

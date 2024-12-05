@@ -1,17 +1,23 @@
-from pathlib import Path
 from collections import Counter
 from math import ceil
-import pandas as pd
-from typing import List, Dict
+from pathlib import Path
+from typing import Dict, List, Optional, Set
+
 import fitz  # PyMuPDF
-from typing import List, Dict, Optional, Set
+import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.sql.elements import CompilerElement
+from sqlalchemy.sql.expression import desc
+
+from src.chains import PresentationAnalysis
+from src.config.navigator import Navigator
 
 
 def parse_pdf_directory(
     root_dir: str,
     topic_first: bool = True,
     include_datasets: Optional[Set[str]] = None,
-    exclude_datasets: Optional[Set[str]] = None
+    exclude_datasets: Optional[Set[str]] = None,
 ) -> pd.DataFrame:
     """
     Parse directory of PDFs into a DataFrame using PyMuPDF (fitz).
@@ -46,10 +52,7 @@ def parse_pdf_directory(
             continue
 
         # Initialize empty dict for file info
-        pdf_info = dict(
-            filename=parts.pop(),
-            relative_path=str(rel_path)
-        )
+        pdf_info = dict(filename=parts.pop(), relative_path=str(rel_path))
 
         if topic_first:
             pdf_info["topic"] = parts.pop(0)
@@ -69,8 +72,7 @@ def parse_pdf_directory(
             pdf_info["keywords"] = metadata.get("keywords", "")
 
             # Get all page sizes
-            page_sizes = [(page.rect.width, page.rect.height)
-                         for page in doc]
+            page_sizes = [(page.rect.width, page.rect.height) for page in doc]
 
             # Get most common page size
             common_size = Counter(page_sizes).most_common(1)[0][0]
@@ -105,6 +107,34 @@ def parse_pdf_directory(
     # df = df.sort_values(sort_cols)
     return df
 
+
+def get_pres_analysis_df(base: Path = Navigator().interim) -> pd.DataFrame:
+    descriptions: List[Dict] = []
+    for f in base.rglob("*.json"):
+        pres = PresentationAnalysis.load(f)
+        for slide in pres.slides:
+            descriptions.append(
+                dict(
+                    pres_path=slide.pdf_path,
+                    pres_title=pres.name,
+                    page=slide.page_num,
+                    # Unparsed text
+                    llm_output=slide.llm_output,
+                    # Parsed texts
+                    text_content=slide.parsed_output.text_content,
+                    visual_content=slide.parsed_output.visual_content,
+                    topic_overview=slide.parsed_output.general_description.topic_overview,
+                    conclusions_and_insights=slide.parsed_output.general_description.conclusions_and_insights,
+                    layout_and_composition=slide.parsed_output.general_description.layout_and_composition,
+                    # Tokens
+                    completion_tokens=slide.response_metadata["token_usage"]["completion_tokens"],
+                    prompt_tokens=slide.response_metadata["token_usage"]["prompt_tokens"],
+                )
+            )
+    df = pd.DataFrame(descriptions)
+    return df
+
+
 def calculate_image_tokens(width: int, height: int):
     # Source: this openai thread: https://community.openai.com/t/how-do-i-calculate-image-tokens-in-gpt4-vision/492318/6
     if width > 2048 or height > 2048:
@@ -125,6 +155,7 @@ def calculate_image_tokens(width: int, height: int):
 
     return total_tokens
 
+
 def tokens2price(tokens: int, cost_per_1k_tokens: float = 0.00015):
-   # Token prices: https://openai.com/api/pricing/
-   return tokens / 1000 * cost_per_1k_tokens
+    # Token prices: https://openai.com/api/pricing/
+    return tokens / 1000 * cost_per_1k_tokens
