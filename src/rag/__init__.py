@@ -1,9 +1,12 @@
 from src.rag.score import (
     BaseScorer,
+    ExponentialScorer,
     HyperbolicScorer,
+    LinearScorer,
     MinScorer,
+    ScorerTypes,
+    StepScorer,
     WeightedScorer,
-    ScorerTypes
 )
 from src.rag.storage import (
     ChromaSlideStore,
@@ -11,5 +14,6 @@ from src.rag.storage import (
     SearchResultPage,
     SearchResultPresentation,
     SlideIndexer,
+    SlideRetriever,
     create_slides_database,
 )

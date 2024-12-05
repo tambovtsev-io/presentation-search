@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import fitz
 from langchain.chains.base import Chain
-from langchain_openai.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from tqdm import tqdm
 

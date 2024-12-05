@@ -7,17 +7,19 @@ import chromadb
 import numpy as np
 from chromadb.api.types import QueryResult
 from chromadb.config import Settings
+from datasets.utils import metadata
 from langchain.schema import Document
+from langchain_core.embeddings import Embeddings
 from langchain_openai.embeddings import OpenAIEmbeddings
 from pandas.core.algorithms import rank
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.chains import PresentationAnalysis, SlideAnalysis
 from src.chains.prompts import JsonH1AndGDPrompt
+from src.config.model_setup import EmbeddingConfig
 from src.config.navigator import Navigator
-from src.rag import BaseScorer, HyperbolicScorer
-from src.rag import ScorerTypes
-from src.rag.score import MinScorer
+from src.rag import BaseScorer, HyperbolicScorer, ScorerTypes
+from src.rag.score import ExponentialScorer, MinScorer
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,8 @@ class ScoredChunk(BaseModel):
     document: Document
     score: float
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     @property
     def slide_id(self) -> str:
         """Get slide identifier from metadata"""
@@ -65,8 +69,6 @@ class ScoredChunk(BaseModel):
     @property
     def page_num(self) -> int:
         return int(self.document.metadata["page_num"])
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SearchResult(BaseModel):
@@ -90,6 +92,8 @@ class SearchResultPage(BaseModel):
         description="Distance scores by chunk type (None if not matched)"
     )
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     @property
     def slide_id(self):
         return self.matched_chunk.slide_id
@@ -110,8 +114,6 @@ class SearchResultPage(BaseModel):
     def page_num(self):
         return self.matched_chunk.page_num
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
 class SearchResultPresentation(BaseModel):
     """Container for presentation-level search results
@@ -124,6 +126,8 @@ class SearchResultPresentation(BaseModel):
     )
     scorer: ScorerTypes = MinScorer()
     metadata: Dict = Field(default_factory=dict)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __getitem__(self, idx) -> SearchResultPage:
         return self.slides[idx]
@@ -154,7 +158,6 @@ class SearchResultPresentation(BaseModel):
 
     @property
     def best_distance(self) -> float:
-        """Get best distance among all slides"""
         return min(slide.best_score for slide in self.slides)
 
     @property
@@ -166,19 +169,32 @@ class SearchResultPresentation(BaseModel):
         scores = [s.best_score for s in self.slides]
         return sum(scores) / len(scores) if len(scores) else float("inf")
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    def format_as_text(self) -> str:
+        """Format search results as text for LLM consumption."""
+        text_parts = [f"Presentation: {self.title}\n"]
+
+        for slide in self.slides:
+            text_parts.append(f"\nSlide {slide.page_num}:")
+
+            # Add all available chunks in a structured way
+            for chunk_type, doc in slide.slide_chunks.items():
+                if doc.page_content.strip():
+                    text_parts.append(f"\n{chunk_type.replace('_', ' ').title()}:")
+                    text_parts.append(doc.page_content.strip())
+
+        return "\n".join(text_parts)
 
 
 class ScoredPresentations(BaseModel):
-    """Container for search results with scoring mechanism"""
+    """Container for search results with scoring mechanism
 
-    presentations: List[SearchResultPresentation] = Field(
-        description="List of presentations to score"
-    )
-    scorer: ScorerTypes = Field(
-        default_factory=lambda: HyperbolicScorer(),
-        description="Scoring mechanism",
-    )
+    presentations are sorted
+    """
+
+    presentations: List[SearchResultPresentation]
+    scorer: ScorerTypes = ExponentialScorer()
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def model_post_init(self, __context: Any) -> None:
         self.sort_presentations()
@@ -202,10 +218,7 @@ class ScoredPresentations(BaseModel):
         self.sort_presentations()
 
     def get_scores(self) -> List[float]:
-        """Get scores for all presentations"""
         return [self.scorer.compute_score(p.slide_scores) for p in self.presentations]
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SlideIndexer:
@@ -333,8 +346,8 @@ class ChromaSlideStore:
 
     def __init__(
         self,
-        collection_name: str = "slides",
-        embedding_model: str = "text-embedding-3-small",
+        collection_name: str = "pres0",
+        embedding_model: Embeddings = EmbeddingConfig().load_openai(),
     ):
         """Initialize ChromaDB storage"""
         self.navigator = Navigator()
@@ -354,7 +367,7 @@ class ChromaSlideStore:
 
         # Initialize OpenAI embeddings
         # self._api_key = os.getenv("OPENAI_API_KEY")
-        self._embeddings = OpenAIEmbeddings(model=embedding_model)
+        self._embeddings = embedding_model
 
         # Initialize indexer
         self._indexer = SlideIndexer()
@@ -670,6 +683,117 @@ class ChromaSlideStore:
             documents.append(doc)
 
         return documents
+
+
+class SlideRetriever(BaseModel):
+    """Retriever for slide search that provides formatted context"""
+
+    storage: ChromaSlideStore
+    scorer: BaseScorer = ExponentialScorer()
+    n_contexts: int = -1
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def format_slide(
+        self, slide: SearchResultPage, metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        text_parts = (
+            []
+            if metadata is None
+            else [f"{k}: {v}" for k, v in metadata.items()] + ["---"]
+        )
+        text_parts.append(f"Slide {slide.page_num}:")
+
+        ## Sort chunks by type to ensure consistent ordering
+        # sorted_chunks = sorted(
+        #     slide.slide_chunks.items(), key=lambda x: x[0]  # Sort by chunk type
+        # )
+        sorted_chunks = slide.slide_chunks.items()
+
+        # Add each chunk's content
+        for chunk_type, doc in sorted_chunks:
+            if doc.page_content.strip():
+                text_parts.append(f"\n{chunk_type.replace('_', ' ').title()}:")
+                text_parts.append(doc.page_content.strip())
+        return "\n\n".join(text_parts)
+
+    def format_contexts(
+        self, pres: SearchResultPresentation, n_contexts: int = -1
+    ) -> List[str]:
+        """Format presentation results as context for LLM"""
+        slide_texts = []
+
+        if n_contexts < 0:
+            n_contexts = len(pres.slides)
+
+        # Add content from each matching slide
+        for i, slide in enumerate(pres.slides):
+            if i == 0:
+                continue  # slide_text = self.format_slide(slide, metadata=dict(pres_name=pres.title))
+
+            if i >= n_contexts:
+                break
+
+            slide_text = self.format_slide(slide)
+            slide_texts.append(slide_text)
+
+        return slide_texts
+
+    def retrieve(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 30,
+        max_distance: float = 2.0,
+        metadata_filter: Optional[Dict] = None,
+    ) -> Dict:
+        """Retrieve presentations and format context
+
+        Args:
+            query: Search query
+            chunk_types: Optional list of chunk types to search
+            n_results: Number of presentations to return
+            max_distance: Maximum distance threshold
+            metadata_filter: Optional metadata filters
+
+        Returns:
+            Dictionary with presentation results and formatted context
+        """
+        # Query the store
+        results = self.storage.search_query_presentations(
+            query=query,
+            chunk_types=chunk_types,
+            n_results=n_results,
+            scorer=self.scorer,
+            max_distance=max_distance,
+            metadata_filter=metadata_filter,
+        )
+
+        # Get best matching presentation
+        if not results.presentations:
+            return dict(pres_info=None, contexts="")
+
+        best_pres = results[0]
+
+        # Gather relevant info from presentation
+        pres_info = dict(
+            pres_name=best_pres.title,
+            pages=[slide.page_num + 1 for slide in best_pres.slides],
+        )
+
+        # Format context for the best match
+        contexts = self.format_contexts(best_pres, self.n_contexts)
+
+        return dict(
+            pres_info=pres_info,
+            answer=self.format_slide(
+                best_pres[0], metadata=dict(pres_name=best_pres.title)
+            ),
+            contexts=contexts,
+        )
+
+    def __call__(self, inputs: Dict[str, Any]):
+        return self.retrieve(inputs["question"])
 
 
 def create_slides_database(

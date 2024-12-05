@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from src.config import (
     Navigator,
     MultilineWrapper,
-    ModelConfig
+    ModelConfig,
+    EmbeddingConfig,
 )
 
 
@@ -15,4 +16,5 @@ class Config:
     """
     navigator: Navigator = Navigator()
     model_config: ModelConfig = ModelConfig()
+    embedding_config: EmbeddingConfig = EmbeddingConfig()
     text_wrapper: MultilineWrapper = MultilineWrapper()

@@ -26,6 +26,9 @@ tabulate = "^0.9.0"
 plotly = "^5.24.1"
 seaborn = "^0.13.2"
 tiktoken = "^0.8.0"
+langsmith = "^0.1.147"
+ragas = "^0.2.6"
+deepeval = "^2.0"
 
 
 [build-system]
