@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 from dotenv import load_dotenv
-from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.base import BaseLanguageModel
 from langchain_openai.embeddings import OpenAIEmbeddings
