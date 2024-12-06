@@ -12,7 +12,7 @@ from langchain.schema import Document
 from langchain_core.embeddings import Embeddings
 from langchain_openai.embeddings import OpenAIEmbeddings
 from pandas.core.algorithms import rank
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, conbytes
 
 from src.chains import PresentationAnalysis, SlideAnalysis
 from src.chains.prompts import JsonH1AndGDPrompt
@@ -685,12 +685,13 @@ class ChromaSlideStore:
         return documents
 
 
-class SlideRetriever(BaseModel):
+class PresentationRetriever(BaseModel):
     """Retriever for slide search that provides formatted context"""
 
     storage: ChromaSlideStore
     scorer: BaseScorer = ExponentialScorer()
     n_contexts: int = -1
+    retrieve_page_contexts: bool = True
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -710,6 +711,8 @@ class SlideRetriever(BaseModel):
         # )
         sorted_chunks = slide.slide_chunks.items()
 
+        # NOTE What if we dont add chunks which did not match
+
         # Add each chunk's content
         for chunk_type, doc in sorted_chunks:
             if doc.page_content.strip():
@@ -728,8 +731,8 @@ class SlideRetriever(BaseModel):
 
         # Add content from each matching slide
         for i, slide in enumerate(pres.slides):
-            if i == 0:
-                continue  # slide_text = self.format_slide(slide, metadata=dict(pres_name=pres.title))
+            # if i == 0:
+            #     slide_text = self.format_slide(slide, metadata=dict(pres_name=pres.title))
 
             if i >= n_contexts:
                 break
@@ -746,7 +749,7 @@ class SlideRetriever(BaseModel):
         n_results: int = 30,
         max_distance: float = 2.0,
         metadata_filter: Optional[Dict] = None,
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """Retrieve presentations and format context
 
         Args:
@@ -769,27 +772,25 @@ class SlideRetriever(BaseModel):
             metadata_filter=metadata_filter,
         )
 
-        # Get best matching presentation
-        if not results.presentations:
-            return dict(pres_info=None, contexts="")
+        contexts = []
+        for pres in results.presentations:
 
-        best_pres = results[0]
+            # Gather relevant info from presentation
+            pres_info = dict(
+                pres_name=pres.title,
+                pages=[slide.page_num + 1 for slide in pres.slides],
+            )
 
-        # Gather relevant info from presentation
-        pres_info = dict(
-            pres_name=best_pres.title,
-            pages=[slide.page_num + 1 for slide in best_pres.slides],
-        )
+            if self.retrieve_page_contexts:
+                page_contexts = self.format_contexts(pres, self.n_contexts)
+                pres_info["contexts"] = page_contexts
 
-        # Format context for the best match
-        contexts = self.format_contexts(best_pres, self.n_contexts)
+            contexts.append(pres_info)
 
         return dict(
-            pres_info=pres_info,
-            answer=self.format_slide(
-                best_pres[0], metadata=dict(pres_name=best_pres.title)
-            ),
             contexts=contexts,
+            # answer=self.format_slide(pres[0], metadata=dict(pres_name=best_pres.title)),
+            # contexts=contexts,
         )
 
     def __call__(self, inputs: Dict[str, Any]):
