@@ -22,6 +22,7 @@ class Navigator:
         self.raw = self.data / "raw"
         self.interim = self.data / "interim"
         self.processed = self.data / "processed"
+        self.eval = self.processed / "eval"
 
         # src paths
         self.src = self.root / "src"

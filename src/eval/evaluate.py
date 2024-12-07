@@ -227,7 +227,7 @@ class EvaluationConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class RAGEvaluator:
+class RAGEvaluatorLangsmith:
     """Evaluator for RAG pipeline using LangSmith"""
 
     def __init__(
@@ -358,6 +358,7 @@ def main():
 
     # Load env variables
     load_dotenv()
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
     # Setup llm and embeddings
     project_config = Config()
@@ -378,7 +379,7 @@ def main():
         scorers=[MinScorer(), ExponentialScorer()],
         max_concurrency=1,
     )
-    evaluator = RAGEvaluator(storage=storage, config=eval_config, llm=llm)
+    evaluator = RAGEvaluatorLangsmith(storage=storage, config=eval_config, llm=llm)
 
     # Load questions if needed
     # sheet_id = os.environ["BENCHMARK_SPREADSHEET_ID"]
@@ -386,7 +387,7 @@ def main():
 
     # Create or load dataset
     # evaluator.create_or_load_dataset(questions_df)
-    evaluator.load_dataset(self.config.dataset_name)
+    # evaluator.load_dataset(self.config.dataset_name)
 
     # Run evaluation
     evaluator.run_evaluation()
