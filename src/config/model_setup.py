@@ -1,15 +1,21 @@
 import os
+from enum import Enum
 from typing import Optional
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.base import BaseLanguageModel
+from langchain_openai import ChatOpenAI
 from langchain_openai.embeddings import OpenAIEmbeddings
 
 from src.testing_utils.echo_llm import EchoLLM
 
 load_dotenv()
+
+
+class Provider(str, Enum):
+    VSEGPT = "vsegpt"
+    OPENAI = "openai"
 
 
 class ModelConfig:
@@ -19,7 +25,11 @@ class ModelConfig:
     """
 
     def load_vsegpt(
-        self, model: str = "vis-openai/gpt-4o-mini", temperature: float = 0.2
+        self,
+        model: str = "vis-openai/gpt-4o-mini",
+        temperature: float = 0.2,
+        *args,
+        **kwargs
     ) -> ChatOpenAI:
         """Load VSEGPT OpenAI-compatible model.
 
@@ -34,7 +44,12 @@ class ModelConfig:
         api_key = os.environ["VSEGPT_API_KEY"]
 
         return ChatOpenAI(
-            base_url=api_base, model=model, api_key=api_key, temperature=temperature
+            base_url=api_base,
+            model=model,
+            api_key=api_key,
+            temperature=temperature,
+            *args,
+            **kwargs
         )
 
     def load_openai(

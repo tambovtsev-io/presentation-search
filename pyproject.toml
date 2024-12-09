@@ -30,6 +30,7 @@ langsmith = "^0.1.147"
 ragas = "^0.2.6"
 deepeval = "^2.0"
 mlflow = "^2.18.0"
+fire = "^0.7.0"
 
 
 [build-system]

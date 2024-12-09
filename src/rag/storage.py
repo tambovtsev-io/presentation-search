@@ -2,6 +2,7 @@ import logging
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from uuid import uuid4
 
 import chromadb
 import numpy as np
@@ -224,7 +225,7 @@ class ScoredPresentations(BaseModel):
 class SlideIndexer:
     """Process slides into chunks suitable for ChromaDB storage"""
 
-    def __init__(self):
+    def __init__(self, collection_name: str):
         """Initialize indexer with semantic section types"""
         # Main content sections from SlideDescription
         self._content_sections = ["text_content", "visual_content"]
@@ -237,16 +238,29 @@ class SlideIndexer:
         ]
 
         self._chunk_types = self._content_sections + self._general_sections
+        self.collection_name = collection_name
 
     def _create_chunk_id(self, slide: SlideAnalysis, chunk_type: str) -> str:
         """Create unique identifier for a chunk
 
-        Format: presentation_name__page_num__chunk_type
+        Format: collection_name__presentation_name__page_num__chunk_type
         """
         # Get presentation name from path
         pres_name = slide.pdf_path.stem
         clean_name = "".join(c for c in pres_name if c.isalnum())
-        return f"{clean_name}__{slide.page_num}__{chunk_type}"
+        return f"{self.collection_name}__{clean_name}__{slide.page_num}__{chunk_type}"
+
+    def _get_base_id(self, chunk_id: str) -> str:
+        """Extract base identifier without short ID
+
+        Args:
+            chunk_id: Full chunk identifier
+
+        Returns:
+            Base identifier (presentation_name__page_num__chunk_type)
+        """
+        # Split by double underscore and take all parts except short ID
+        return "__".join(chunk_id.split("__")[1:])
 
     def _prepare_chunk_metadata(
         self, slide: SlideAnalysis, chunk_type: str
@@ -346,7 +360,7 @@ class ChromaSlideStore:
 
     def __init__(
         self,
-        collection_name: str = "pres0",
+        collection_name: str = "pres1",
         embedding_model: Embeddings = EmbeddingConfig().load_openai(),
     ):
         """Initialize ChromaDB storage"""
@@ -370,7 +384,7 @@ class ChromaSlideStore:
         self._embeddings = embedding_model
 
         # Initialize indexer
-        self._indexer = SlideIndexer()
+        self._indexer = SlideIndexer(collection_name=collection_name)
 
     def add_slide(self, slide: SlideAnalysis) -> None:
         """Add single slide to storage"""
@@ -678,11 +692,75 @@ class ChromaSlideStore:
         documents = []
         for i in range(len(results["ids"])):
             doc = Document(
-                page_content=results["documents"][i], metadata=results["metadatas"][i]
+                page_content=results["documents"][i], metadata=results["metadatas"][i]  # type: ignore
             )
             documents.append(doc)
 
         return documents
+
+    async def add_slide_async(self, slide: SlideAnalysis) -> None:
+        """Add single slide to storage asynchronously"""
+        # Process slide into chunks
+        chunks = self._indexer.process_slide(slide)
+
+        # Skip if no chunks
+        if not chunks:
+            logger.warning(
+                f"Slide {slide.page_num} from '{slide.pdf_path}' had no chunks"
+            )
+            return
+
+        # Prepare data for ChromaDB
+        ids = [chunk.id for chunk in chunks]
+        texts = [chunk.text for chunk in chunks]
+        metadatas = [chunk.metadata for chunk in chunks]
+
+        # Get embeddings asynchronously
+        embeddings = await self._embeddings.aembed_documents(texts)
+
+        # Add to ChromaDB
+        self._collection.add(
+            ids=ids, documents=texts, metadatas=metadatas, embeddings=embeddings  # type: ignore
+        )
+
+    async def process_presentation_async(
+        self, presentation: PresentationAnalysis, max_concurrent: int = 5
+    ) -> None:
+        """Process a single presentation asynchronously with concurrency limit
+
+        Args:
+            presentation: Presentation to process
+            max_concurrent: Maximum number of slides to process concurrently
+        """
+        from asyncio import Semaphore, create_task, gather
+
+        # Create semaphore for concurrency control
+        semaphore = Semaphore(max_concurrent)
+
+        logger.info(f"Start processing presentation '{presentation.name}'")
+
+        async def process_slide_with_semaphore(slide: SlideAnalysis):
+            async with semaphore:
+                try:
+                    await self.add_slide_async(slide)
+                    logger.info(
+                        f"Processed slide {slide.page_num} of '{presentation.name}'"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to process slide {slide.page_num} of "
+                        f"'{presentation.name}': {str(e)}"
+                    )
+
+        # Create tasks for all slides
+        tasks = [
+            create_task(process_slide_with_semaphore(slide))
+            for slide in presentation.slides
+        ]
+
+        # Wait for all tasks to complete
+        await gather(*tasks)
+        logger.info(f"Completed processing presentation: {presentation.name}")
 
 
 class PresentationRetriever(BaseModel):
@@ -797,28 +875,107 @@ class PresentationRetriever(BaseModel):
         return self.retrieve(inputs["question"])
 
 
-def create_slides_database(
-    presentations: List[PresentationAnalysis], collection_name: str = "slides"
+# def create_slides_database(
+#     presentations: List[PresentationAnalysis], collection_name: str = "slides"
+# ) -> ChromaSlideStore:
+#     """Create ChromaDB database from slides
+
+#     Args:
+#         presentations: List of analyzed presentations
+#         collection_name: Name for ChromaDB collection
+
+#     Returns:
+#         Configured ChromaSlideStore instance
+#     """
+#     from dotenv import load_dotenv
+
+#     load_dotenv()
+#     # Initialize store
+#     store = ChromaSlideStore(collection_name=collection_name)
+
+#     # Add slides from all presentations
+#     for presentation in presentations:
+#         print(f"Processing '{presentation.name}'...")
+#         for slide in presentation.slides:
+#             store.add_slide(slide)
+
+#     return store
+
+
+async def create_slides_database_async(
+    presentations: List[PresentationAnalysis],
+    collection_name: str = "slides",
+    embedding_model: Optional[Embeddings] = None,
+    max_concurrent_slides: int = 5,
 ) -> ChromaSlideStore:
-    """Create ChromaDB database from slides
+    """Create ChromaDB database from slides asynchronously
 
     Args:
         presentations: List of analyzed presentations
         collection_name: Name for ChromaDB collection
+        embedding_model: Optional embedding model to use
+        max_concurrent_slides: Maximum number of slides to process concurrently
 
     Returns:
         Configured ChromaSlideStore instance
     """
+    from asyncio import create_task, gather
+
+    # Initialize store
+    store = ChromaSlideStore(
+        collection_name=collection_name,
+        embedding_model=embedding_model or EmbeddingConfig().load_openai(),
+    )
+
+    for pres in presentations:
+        await store.process_presentation_async(
+            pres, max_concurrent=max_concurrent_slides
+        )
+
+    # # Process presentations concurrently
+    # tasks = [
+    #     create_task(
+    #         store.process_presentation_async(
+    #             presentation, max_concurrent=max_concurrent_slides
+    #         )
+    #     )
+    #     for presentation in presentations
+    # ]
+    #
+    # # Wait for all presentations to be processed
+    # await gather(*tasks)
+
+    return store
+
+
+def create_slides_database(
+    presentations: List[PresentationAnalysis],
+    collection_name: str = "slides",
+    embedding_model: Optional[Embeddings] = None,
+    max_concurrent_slides: int = 3,
+) -> ChromaSlideStore:
+    """Synchronous wrapper for create_slides_database_async
+
+    Args:
+        presentations: List of analyzed presentations
+        collection_name: Name for ChromaDB collection
+        embedding_model: Optional embedding model to use
+        max_concurrent_slides: Maximum number of slides to process concurrently
+
+    Returns:
+        Configured ChromaSlideStore instance
+    """
+    import asyncio
+
     from dotenv import load_dotenv
 
     load_dotenv()
-    # Initialize store
-    store = ChromaSlideStore(collection_name=collection_name)
 
-    # Add slides from all presentations
-    for presentation in presentations:
-        print(f"Processing '{presentation.name}'...")
-        for slide in presentation.slides:
-            store.add_slide(slide)
-
-    return store
+    return asyncio.run(
+        create_slides_database_async(
+            presentations=presentations,
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            max_concurrent_slides=max_concurrent_slides,
+        )
+    )
