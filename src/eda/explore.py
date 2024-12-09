@@ -5,32 +5,63 @@ from typing import Dict, List, Optional, Set
 
 import fitz  # PyMuPDF
 import pandas as pd
-from sqlalchemy import text
-from sqlalchemy.sql.elements import CompilerElement
-from sqlalchemy.sql.expression import desc
 
 from src.chains import PresentationAnalysis
 from src.config.navigator import Navigator
 
 
+class PresentationMetrics:
+    """Class to handle various presentation metrics calculations."""
+
+    def __init__(self, pdf_path: Path):
+        """Initialize with PDF path and open document."""
+        self.pdf_path = pdf_path
+        self.doc = fitz.open(pdf_path)
+
+    def get_page_metrics(self, page_num: int) -> Dict:
+        """
+        Get comprehensive metrics for a specific page.
+
+        Returns:
+            Dictionary containing page metrics (image count, text length, size)
+        """
+        page = self.doc[page_num]
+        return dict(
+            image_count=len(page.get_images()),
+            n_words=len(page.get_text().strip().split()),
+            size=(page.rect.width, page.rect.height)
+        )
+
+    def get_all_metrics(self) -> List[Dict]:
+        """
+        Calculate metrics for all pages in the presentation.
+
+        Returns:
+            List of dictionaries with metrics for each page
+        """
+        metrics = []
+        for page_num in range(len(self.doc)):
+            page_metrics = self.get_page_metrics(page_num)
+            page_metrics.update(dict(
+                page_num=page_num,
+                pdf_path=str(self.pdf_path)
+            ))
+            metrics.append(page_metrics)
+        return metrics
+
+    def __del__(self):
+        """Ensure proper document closure."""
+        if hasattr(self, "doc"):
+            self.doc.close()
+
+
 def parse_pdf_directory(
-    root_dir: str,
+    root_dir: str | Path,
     topic_first: bool = True,
     include_datasets: Optional[Set[str]] = None,
     exclude_datasets: Optional[Set[str]] = None,
 ) -> pd.DataFrame:
-    """
-    Parse directory of PDFs into a DataFrame using PyMuPDF (fitz).
-
-    Args:
-        root_dir: Path to root directory containing PDF files
-        topic_first: If True, first folder is topic. If False, topic is not stored
-        include_datasets: Set of dataset names to include. If None, include all
-        exclude_datasets: Set of dataset names to exclude. If None, exclude none
-
-    Returns:
-        DataFrame with columns: [topic (optional)], dataset, nav, filename, relative_path
-    """
+    """Your existing parse_pdf_directory function with metrics integration."""
     if include_datasets and exclude_datasets:
         raise ValueError("Cannot specify both include_datasets and exclude_datasets")
 
@@ -44,7 +75,6 @@ def parse_pdf_directory(
         # Get dataset name for filtering (either first or second part depending on topic_first)
         dataset_name = parts[1] if topic_first else parts[0]
 
-        # import pdb; pdb.set_trace()
         # Apply dataset filters
         if include_datasets and dataset_name not in include_datasets:
             continue
@@ -61,52 +91,37 @@ def parse_pdf_directory(
         pdf_info["nav"] = "/".join(parts) if parts else ""
 
         try:
-            doc = fitz.open(path)
-            pdf_info["num_pages"] = doc.page_count
+            metrics = PresentationMetrics(path)
+            all_metrics = metrics.get_all_metrics()
 
-            # Get metadata
-            metadata = doc.metadata
-            pdf_info["title"] = metadata.get("title", "")
-            pdf_info["author"] = metadata.get("author", "")
-            pdf_info["subject"] = metadata.get("subject", "")
-            pdf_info["keywords"] = metadata.get("keywords", "")
+            # Calculate aggregated metrics
+            pdf_info["num_pages"] = len(all_metrics)
+            pdf_info["total_images"] = sum(m["image_count"] for m in all_metrics)
+            pdf_info["total_n_words"] = sum(m["n_words"] for m in all_metrics)
 
-            # Get all page sizes
-            page_sizes = [(page.rect.width, page.rect.height) for page in doc]
-
-            # Get most common page size
+            # Get page sizes
+            page_sizes = [(m["size"][0], m["size"][1]) for m in all_metrics]
             common_size = Counter(page_sizes).most_common(1)[0][0]
             pdf_info["page_width"] = common_size[0]
             pdf_info["page_height"] = common_size[1]
 
-            # If there are different page sizes, store them as a set
+            # Handle varying sizes
             unique_sizes = set(page_sizes)
-            if len(unique_sizes) > 1:
-                pdf_info["varying_sizes"] = str(unique_sizes)
-            else:
-                pdf_info["varying_sizes"] = ""
-
-            doc.close()
+            pdf_info["varying_sizes"] = str(unique_sizes) if len(unique_sizes) > 1 else ""
 
         except Exception as e:
-            pdf_info["num_pages"] = 0
-            pdf_info["title"] = ""
-            pdf_info["author"] = ""
-            pdf_info["subject"] = ""
-            pdf_info["keywords"] = ""
-            pdf_info["page_width"] = 0
-            pdf_info["page_height"] = 0
-            pdf_info["varying_sizes"] = ""
+            pdf_info.update(dict(
+                num_pages=0,
+                total_images=0,
+                total_text_length=0,
+                page_width=0,
+                page_height=0,
+                varying_sizes=""
+            ))
 
         pdf_files.append(pdf_info)
 
-    # Convert to DataFrame
-    df = pd.DataFrame(pdf_files)
-
-    # sort_cols = ["dataset", "nav"]
-    # df = df.sort_values(sort_cols)
-    return df
-
+    return pd.DataFrame(pdf_files)
 
 def get_pres_analysis_df(base: Path = Navigator().interim) -> pd.DataFrame:
     descriptions: List[Dict] = []
