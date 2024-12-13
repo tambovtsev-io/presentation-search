@@ -1,10 +1,12 @@
 import os
 import time
+from abc import ABC, abstractmethod
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Protocol, Union
 
-import mlflow, mlflow.config
+import mlflow
+import mlflow.config
 import pandas as pd
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -12,68 +14,89 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import Config, load_spreadsheet
-from src.rag import (ChromaSlideStore, HyperbolicScorer, MinScorer,
-                     PresentationRetriever, ScorerTypes)
+from src.rag import (
+    ChromaSlideStore,
+    HyperbolicScorer,
+    MinScorer,
+    PresentationRetriever,
+    ScorerTypes,
+)
 
 
-class RetrievalMetrics:
-    """Metrics calculators for retrieval evaluation"""
+class MetricResult(BaseModel):
+    """Container for metric calculation results"""
 
-    @staticmethod
-    @mlflow.trace
-    def presentation_match(run_output: Dict, ground_truth: Dict) -> float:
-        """Check if top-1 retrieved presentation matches ground truth"""
+    name: str
+    score: float
+    explanation: Optional[str] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class BaseMetric(ABC):
+    """Base class for evaluation metrics"""
+
+    @property
+    def name(self) -> str:
+        """Get metric name"""
+        return self.__class__.__name__.lower()
+
+    @abstractmethod
+    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+        """Calculate metric value"""
+        pass
+
+
+class PresentationMatch(BaseMetric):
+    """Check if top-1 retrieved presentation matches ground truth"""
+
+    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         best_pres_info = run_output["contexts"][0]
         best_pres_name = best_pres_info["pres_name"]
-        return float(best_pres_name == ground_truth["pres_name"])
+        score = float(best_pres_name == ground_truth["pres_name"])
+        return MetricResult(
+            name=self.name,
+            score=score,
+            explanation=f"Retrieved: {best_pres_name}, Expected: {ground_truth['pres_name']}",
+        )
 
-    @staticmethod
-    def presentation_found(run_output: Dict, ground_truth: Dict) -> float:
-        """Check if ground truth presentation is in top-k"""
+
+class PresentationFound(BaseMetric):
+    """Check if ground truth presentation is in top-k"""
+
+    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         found_pres_names = [c["pres_name"] for c in run_output["contexts"]]
-        return float(ground_truth["pres_name"] in found_pres_names)
+        score = float(ground_truth["pres_name"] in found_pres_names)
+        return MetricResult(
+            name=self.name,
+            score=score,
+            explanation=f"Found in positions: {[i for i, p in enumerate(found_pres_names) if p == ground_truth['pres_name']]}",
+        )
 
-    @staticmethod
-    def page_match(run_output: Dict, ground_truth: Dict) -> float:
-        """Check if best page matches ground truth"""
+
+class PageMatch(BaseMetric):
+    """Check if best page matches ground truth"""
+
+    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         score = 0.0
+        explanation = ""
         for pres_info in run_output["contexts"]:
             best_page_found = pres_info["pages"][0]
             if pres_info["pres_name"] == ground_truth["pres_name"]:
                 reference_pages = ground_truth["pages"]
                 if not reference_pages:
                     score = 1.0
+                    explanation = "No specific page required"
                 elif best_page_found in reference_pages:
                     score = 1.0
-        return score
+                    explanation = f"Found correct page {best_page_found}"
+                else:
+                    explanation = f"Page mismatch: found {best_page_found}, expected {reference_pages}"
 
-    @staticmethod
-    def page_found(run_output: Dict, ground_truth: Dict) -> float:
-        """Check if ground truth pages are found"""
-        score = 0.0
-        for pres_info in run_output["contexts"]:
-            pages_found = pres_info["pages"]
-            if pres_info["pres_name"] == ground_truth["pres_name"]:
-                reference_pages = ground_truth["pages"]
-                if not reference_pages:
-                    score = 1.0
-                elif not set(reference_pages) - set(pages_found):
-                    score = 1.0
-        return score
-
-    @staticmethod
-    def n_pages(run_output: Dict, ground_truth: Dict) -> float:
-        """Count number of pages returned"""
-        pres_info = run_output["contexts"][0]
-        return float(len(pres_info["pages"]))
-
-    @staticmethod
-    def n_pres(run_output: Dict, ground_truth: Dict) -> float:
-        """Count number of presentations returned"""
-        return float(len(run_output["contexts"]))
+        return MetricResult(name=self.name, score=score, explanation=explanation)
 
 
-class LLMRelevanceEvaluator:
+class LLMRelevance(BaseMetric):
     """LLM-based relevance scoring"""
 
     class RelevanceOutput(BaseModel):
@@ -126,9 +149,7 @@ Format output as JSON:
             | JsonOutputParser(pydantic_object=self.RelevanceOutput)
         )
 
-    def evaluate(
-        self, run_output: Dict, ground_truth: Dict
-    ) -> Dict[str, Union[float, str]]:
+    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         """Evaluate relevance of retrieved content"""
         time.sleep(1.05)  # Rate limiting
         question = ground_truth["question"]
@@ -142,10 +163,30 @@ Format output as JSON:
         pres_context = "\n\n---\n\n".join(contexts_used)
 
         llm_out = self.chain.invoke(dict(query=question, context=pres_context))
-        return {
-            "llm_relevance_score": float(llm_out["relevance_score"]),
-            "llm_relevance_explanation": llm_out["explanation"],
-        }
+        return MetricResult(
+            name=self.name,
+            score=float(llm_out["relevance_score"]),
+            explanation=llm_out["explanation"],
+        )
+
+
+class MetricsRegistry:
+    """Factory for creating metric instances"""
+
+    _metrics = {
+        "presentationmatch": PresentationMatch,
+        "presentationfound": PresentationFound,
+        "pagematch": PageMatch,
+        "llmrelevance": LLMRelevance,
+    }
+
+    @classmethod
+    def create(cls, metric_name: str, **kwargs) -> BaseMetric:
+        """Create metric instance by name"""
+        metric_cls = cls._metrics.get(metric_name.lower())
+        if metric_cls is None:
+            raise ValueError(f"Unknown metric: {metric_name}")
+        return metric_cls(**kwargs)
 
 
 class EvaluationConfig(BaseModel):
@@ -155,7 +196,7 @@ class EvaluationConfig(BaseModel):
     tracking_uri: str = f"sqlite:///{Config().navigator.eval_runs / 'mlruns.db'}"
     artifacts_uri: str = f"file:////{Config().navigator.eval_artifacts}"
 
-    scorers: List[ScorerTypes] = [MinScorer(), HyperbolicScorer()]
+    scorers: List[ScorerTypes]
     n_contexts: int = 2
     metrics: List[str] = ["presentation_match", "page_match"]
 
@@ -179,15 +220,13 @@ class RAGEvaluator:
         mlflow.set_tracking_uri(config.tracking_uri)
         mlflow.config.enable_async_logging(True)
 
-        # Initialize metrics calculators
-        self.metrics = {
-            name: getattr(RetrievalMetrics, name) for name in self.config.metrics
-        }
-
-        if llm:
-            self.llm_evaluator = LLMRelevanceEvaluator(
-                llm=self.llm, n_contexts=self.config.n_contexts
-            )
+        # Initialize metrics
+        self.metrics: List[BaseMetric] = []
+        for metric_name in config.metrics:
+            kwargs = {}
+            if "llm" in metric_name and llm:
+                kwargs = dict(llm=self.llm, n_contexts=config.n_contexts)
+            self.metrics.append(MetricsRegistry.create(metric_name, **kwargs))
 
     @staticmethod
     def load_questions_from_sheet(*args, **kwargs) -> pd.DataFrame:
@@ -198,20 +237,14 @@ class RAGEvaluator:
 
     def evaluate_single(
         self, retriever: PresentationRetriever, question: str, ground_truth: Dict
-    ) -> Dict:
+    ) -> Dict[str, MetricResult]:
         """Evaluate single query"""
-        # Run retrieval
         output = retriever(dict(question=question))
-
-        # Calculate metrics
         results = {}
-        for name, metric_fn in self.metrics.items():
-            results[name] = metric_fn(output, ground_truth)
 
-        # Add LLM evaluation if configured
-        if hasattr(self, "llm_evaluator"):
-            llm_results = self.llm_evaluator.evaluate(output, ground_truth)
-            results.update(llm_results)
+        for metric in self.metrics:
+            result = metric.calculate(output, ground_truth)
+            results[metric.name] = result
 
         return results
 
@@ -244,7 +277,7 @@ class RAGEvaluator:
 
                 # Run evaluation for each question
                 results_log = []
-                metric_values = {name: [] for name in self.metrics.keys()}
+                metric_values = {m.name: [] for m in self.metrics}
                 if hasattr(self, "llm_evaluator"):
                     metric_values["llm_relevance_score"] = []
 
@@ -262,10 +295,6 @@ class RAGEvaluator:
                         ground_truth=ground_truth,
                     )
 
-                    for name, value in results.items():
-                        if isinstance(value, (int, float)):
-                            metric_values[name].append(value)
-
                     # Prepare row for results log
                     result_row = {
                         "question": row["question"],
@@ -277,26 +306,25 @@ class RAGEvaluator:
                         "retrieved_pages": [
                             ",".join(map(str, p["pages"])) for p in output["contexts"]
                         ],
-                        **{
-                            f"metric_{name}": value
-                            for name, value in results.items()
-                            if isinstance(value, (int, float))
-                        },
                     }
 
-                    # Add LLM explanation if available
-                    if "llm_relevance_explanation" in results:
-                        result_row["llm_explanation"] = results[
-                            "llm_relevance_explanation"
-                        ]
-
+                    # Add metrics results and explanations
+                    for metric_name, metric_result in results.items():
+                        result_row[f"metric_{metric_name}_score"] = metric_result.score
+                        if metric_result.explanation:
+                            result_row[f"metric_{metric_name}_explanation"] = (
+                                metric_result.explanation
+                            )
                     results_log.append(result_row)
+
+                    # Update metric values for averaging
+                    for metric_name, metric_result in results.items():
+                        metric_values[metric_name].append(metric_result.score)
 
                 # Save metrics results
                 results_df = pd.DataFrame(results_log)
 
                 # Save with file
-
                 with NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
                     results_df.to_csv(f.name, index=False)
                     fpath = str("detailed_results")
@@ -334,11 +362,7 @@ def main():
         artifacts_uri=f"file:////{artifacts_path}",
     )
 
-    evaluator = RAGEvaluator(
-        storage=storage,
-        config=eval_config,
-        # llm=llm
-    )
+    evaluator = RAGEvaluator(storage=storage, config=eval_config, llm=llm)
 
     # Load questions
     sheet_id = os.environ["BENCHMARK_SPREADSHEET_ID"]
