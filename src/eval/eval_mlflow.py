@@ -1,10 +1,10 @@
 import os
-from tempfile import NamedTemporaryFile
 import time
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Dict, List, Optional, Union
 
-import mlflow
+import mlflow, mlflow.config
 import pandas as pd
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -12,19 +12,15 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import Config, load_spreadsheet
-from src.rag import (
-    ChromaSlideStore,
-    HyperbolicScorer,
-    MinScorer,
-    PresentationRetriever,
-    ScorerTypes,
-)
+from src.rag import (ChromaSlideStore, HyperbolicScorer, MinScorer,
+                     PresentationRetriever, ScorerTypes)
 
 
 class RetrievalMetrics:
     """Metrics calculators for retrieval evaluation"""
 
     @staticmethod
+    @mlflow.trace
     def presentation_match(run_output: Dict, ground_truth: Dict) -> float:
         """Check if top-1 retrieved presentation matches ground truth"""
         best_pres_info = run_output["contexts"][0]
@@ -130,19 +126,25 @@ Format output as JSON:
             | JsonOutputParser(pydantic_object=self.RelevanceOutput)
         )
 
-    def evaluate(self, run_output: Dict, ground_truth: Dict) -> Dict[str, Union[float, str]]:
+    def evaluate(
+        self, run_output: Dict, ground_truth: Dict
+    ) -> Dict[str, Union[float, str]]:
         """Evaluate relevance of retrieved content"""
         time.sleep(1.05)  # Rate limiting
         question = ground_truth["question"]
         pres = run_output["contexts"][0]
 
-        contexts_used = pres["contexts"] if self.n_contexts <= 0 else pres["contexts"][:self.n_contexts]
+        contexts_used = (
+            pres["contexts"]
+            if self.n_contexts <= 0
+            else pres["contexts"][: self.n_contexts]
+        )
         pres_context = "\n\n---\n\n".join(contexts_used)
 
         llm_out = self.chain.invoke(dict(query=question, context=pres_context))
         return {
             "llm_relevance_score": float(llm_out["relevance_score"]),
-            "llm_relevance_explanation": llm_out["explanation"]
+            "llm_relevance_explanation": llm_out["explanation"],
         }
 
 
@@ -150,7 +152,8 @@ class EvaluationConfig(BaseModel):
     """Configuration for RAG evaluation"""
 
     experiment_name: str = "RAG_test"
-    tracking_uri: str = "sqlite:///data/processed/eval/mlruns.db"
+    tracking_uri: str = f"sqlite:///{Config().navigator.eval_runs / 'mlruns.db'}"
+    artifacts_uri: str = f"file:////{Config().navigator.eval_artifacts}"
 
     scorers: List[ScorerTypes] = [MinScorer(), HyperbolicScorer()]
     n_contexts: int = 2
@@ -166,7 +169,7 @@ class RAGEvaluator:
         self,
         storage: ChromaSlideStore,
         config: EvaluationConfig,
-        llm: Optional[ChatOpenAI] = None
+        llm: Optional[ChatOpenAI] = None,
     ):
         self.storage = storage
         self.config = config
@@ -174,31 +177,27 @@ class RAGEvaluator:
 
         # Setup MLFlow
         mlflow.set_tracking_uri(config.tracking_uri)
+        mlflow.config.enable_async_logging(True)
 
         # Initialize metrics calculators
         self.metrics = {
-            name: getattr(RetrievalMetrics, name)
-            for name in self.config.metrics
+            name: getattr(RetrievalMetrics, name) for name in self.config.metrics
         }
 
         if llm:
             self.llm_evaluator = LLMRelevanceEvaluator(
-                llm=self.llm,
-                n_contexts=self.config.n_contexts
+                llm=self.llm, n_contexts=self.config.n_contexts
             )
 
     @staticmethod
-    def load_questions_from_sheet(sheet_id: str) -> pd.DataFrame:
+    def load_questions_from_sheet(*args, **kwargs) -> pd.DataFrame:
         """Load evaluation questions from spreadsheet"""
-        df = load_spreadsheet(sheet_id)
+        df = load_spreadsheet(*args, **kwargs)
         df.fillna(dict(page=""), inplace=True)
         return df
 
     def evaluate_single(
-        self,
-        retriever: PresentationRetriever,
-        question: str,
-        ground_truth: Dict
+        self, retriever: PresentationRetriever, question: str, ground_truth: Dict
     ) -> Dict:
         """Evaluate single query"""
         # Run retrieval
@@ -218,7 +217,18 @@ class RAGEvaluator:
 
     def run_evaluation(self, questions_df: pd.DataFrame) -> None:
         """Run evaluation for all configured scorers"""
-        mlflow.set_experiment(self.config.experiment_name)
+
+        # Load the existing experiment or create a new one
+        experiment = mlflow.get_experiment_by_name(self.config.experiment_name)
+        if experiment is not None:
+            experiment_id = experiment.experiment_id
+        else:
+            experiment_id = mlflow.create_experiment(
+                self.config.experiment_name,
+                artifact_location=self.config.artifacts_uri,
+            )
+
+        mlflow.set_experiment(experiment_id=experiment_id)
 
         for scorer in self.config.scorers:
             with mlflow.start_run(run_name=f"scorer_{scorer.id}"):
@@ -229,7 +239,7 @@ class RAGEvaluator:
                 retriever = PresentationRetriever(
                     storage=self.storage,
                     scorer=scorer,
-                    n_contexts=self.config.n_contexts
+                    n_contexts=self.config.n_contexts,
                 )
 
                 # Run evaluation for each question
@@ -242,14 +252,14 @@ class RAGEvaluator:
                     ground_truth = {
                         "question": row["question"],
                         "pres_name": row["pres_name"],
-                        "pages": [int(x) if x else -1 for x in row["page"].split(",")]
+                        "pages": [int(x) if x else -1 for x in row["page"].split(",")],
                     }
 
                     output = retriever(dict(question=row["question"]))
                     results = self.evaluate_single(
                         retriever=retriever,
                         question=row["question"],
-                        ground_truth=ground_truth
+                        ground_truth=ground_truth,
                     )
 
                     for name, value in results.items():
@@ -265,37 +275,37 @@ class RAGEvaluator:
                             p["pres_name"] for p in output["contexts"]
                         ],
                         "retrieved_pages": [
-                            ",".join(map(str, p["pages"]))
-                            for p in output["contexts"]
+                            ",".join(map(str, p["pages"])) for p in output["contexts"]
                         ],
                         **{
                             f"metric_{name}": value
                             for name, value in results.items()
                             if isinstance(value, (int, float))
-                        }
+                        },
                     }
 
                     # Add LLM explanation if available
                     if "llm_relevance_explanation" in results:
-                        result_row["llm_explanation"] = results["llm_relevance_explanation"]
+                        result_row["llm_explanation"] = results[
+                            "llm_relevance_explanation"
+                        ]
 
                     results_log.append(result_row)
 
                 # Save metrics results
                 results_df = pd.DataFrame(results_log)
 
-                # Save whith file
+                # Save with file
+
                 with NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
                     results_df.to_csv(f.name, index=False)
-                    fpath = str(Config().navigator.eval / "detailed_results.csv")
+                    fpath = str("detailed_results")
                     mlflow.log_artifact(f.name, fpath)
 
                 # Log average metrics
                 for name, values in metric_values.items():
                     if values:  # Skip empty lists
                         mlflow.log_metric(f"mean_{name}", sum(values) / len(values))
-
-
 
 
 def main():
@@ -312,25 +322,29 @@ def main():
     llm = project_config.model_config.load_vsegpt(model="openai/gpt-4o-mini")
     embeddings = project_config.embedding_config.load_vsegpt()
 
-    storage = ChromaSlideStore(collection_name="pres0", embedding_model=embeddings)
+    storage = ChromaSlideStore(collection_name="pres1", embedding_model=embeddings)
 
+    db_path = project_config.navigator.eval_runs / "mlruns.db"
+    artifacts_path = project_config.navigator.eval_artifacts
     eval_config = EvaluationConfig(
-        experiment_name="PresRetrieve_mlflow",
+        experiment_name="PresRetrieve_mlflow_5",
         metrics=["presentation_match", "page_match"],
         scorers=[MinScorer(), HyperbolicScorer()],
+        tracking_uri=f"sqlite:////{db_path}",
+        artifacts_uri=f"file:////{artifacts_path}",
     )
 
     evaluator = RAGEvaluator(
         storage=storage,
         config=eval_config,
-        llm=llm
+        # llm=llm
     )
 
     # Load questions
     sheet_id = os.environ["BENCHMARK_SPREADSHEET_ID"]
     questions_df = evaluator.load_questions_from_sheet(sheet_id)
 
-    questions_df.sample(5)
+    questions_df = questions_df.sample(5)
 
     # Run evaluation
     evaluator.run_evaluation(questions_df)

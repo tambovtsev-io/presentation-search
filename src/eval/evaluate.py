@@ -255,9 +255,9 @@ class RAGEvaluatorLangsmith:
         self.llm = LangchainLLMWrapper(llm_unwrapped)
 
     @classmethod
-    def load_questions_from_sheet(cls, sheet_id: str) -> pd.DataFrame:
+    def load_questions_from_sheet(cls, *args, **kwargs) -> pd.DataFrame:
         """Load evaluation questions from Google Sheets and preprocess dataset"""
-        df = load_spreadsheet(sheet_id)
+        df = load_spreadsheet(*args, **kwargs)
         df.fillna(dict(page=""), inplace=True)
         return df
 
