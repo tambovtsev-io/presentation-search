@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Final
 
 from rich.logging import RichHandler
 
@@ -8,7 +9,10 @@ from src.config import Config
 
 
 def setup_logging(
-    logger: logging.Logger, log_dir: Path = Config().navigator.log
+    logger: logging.Logger,
+    log_dir: Path = Config().navigator.log,
+    file_logging_level=logging.DEBUG,
+    console_logging_level=logging.INFO,
 ) -> None:
     """Setup logging to both file and console with rich formatting
 
@@ -31,16 +35,16 @@ def setup_logging(
     # Setup file handler
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(file_formatter)
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(file_logging_level)
 
     # Setup console handler with rich formatting
     console_handler = RichHandler(rich_tracebacks=True, markup=True, show_time=False)
     console_handler.setFormatter(console_formatter)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(console_logging_level)
 
     # Setup root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(file_logging_level)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 

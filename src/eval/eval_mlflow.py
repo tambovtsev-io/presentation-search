@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from abc import ABC, abstractmethod
@@ -14,6 +15,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import Config, load_spreadsheet
+from src.config.logging import setup_logging
 from src.rag import (
     ChromaSlideStore,
     HyperbolicScorer,
@@ -21,6 +23,8 @@ from src.rag import (
     PresentationRetriever,
     ScorerTypes,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class MetricResult(BaseModel):
@@ -212,6 +216,10 @@ class RAGEvaluator:
         config: EvaluationConfig,
         llm: Optional[ChatOpenAI] = None,
     ):
+        # Setup logging
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+        # Setup Evaluation
         self.storage = storage
         self.config = config
         self.llm = llm or Config().model_config.load_vsegpt(model="openai/gpt-4o-mini")
@@ -219,6 +227,9 @@ class RAGEvaluator:
         # Setup MLFlow
         mlflow.set_tracking_uri(config.tracking_uri)
         mlflow.config.enable_async_logging(True)
+        self._logger.info(
+            f"MLflow tracking URI: {config.tracking_uri}, artifacts: {config.artifacts_uri}"
+        )
 
         # Initialize metrics
         self.metrics: List[BaseMetric] = []
@@ -227,6 +238,7 @@ class RAGEvaluator:
             if "llm" in metric_name and llm:
                 kwargs = dict(llm=self.llm, n_contexts=config.n_contexts)
             self.metrics.append(MetricsRegistry.create(metric_name, **kwargs))
+            self._logger.info(f"Initialized metric: {metric_name}")
 
     @staticmethod
     def load_questions_from_sheet(*args, **kwargs) -> pd.DataFrame:
@@ -236,37 +248,48 @@ class RAGEvaluator:
         return df
 
     def evaluate_single(
-        self, retriever: PresentationRetriever, question: str, ground_truth: Dict
+        self, output: Dict[str, Any], question: str, ground_truth: Dict
     ) -> Dict[str, MetricResult]:
         """Evaluate single query"""
-        output = retriever(dict(question=question))
+        # Logging
+        self._logger.info(f"Evaluating question: {question}")
+
         results = {}
 
         for metric in self.metrics:
             result = metric.calculate(output, ground_truth)
             results[metric.name] = result
 
+            self._logger.info(f"Metric {metric.name}: {result.score}")
+
         return results
 
     def run_evaluation(self, questions_df: pd.DataFrame) -> None:
         """Run evaluation for all configured scorers"""
+        self._logger.info(f"Starting evaluation with {len(questions_df)} questions")
 
         # Load the existing experiment or create a new one
         experiment = mlflow.get_experiment_by_name(self.config.experiment_name)
         if experiment is not None:
             experiment_id = experiment.experiment_id
+            self._logger.info(
+                f"Using existing experiment: {self.config.experiment_name}"
+            )
         else:
             experiment_id = mlflow.create_experiment(
                 self.config.experiment_name,
                 artifact_location=self.config.artifacts_uri,
             )
+            self._logger.info(f"Created new experiment: {self.config.experiment_name}")
 
         mlflow.set_experiment(experiment_id=experiment_id)
 
         for scorer in self.config.scorers:
+            self._logger.info(f"Evaluating with scorer: {scorer.id}")
             with mlflow.start_run(run_name=f"scorer_{scorer.id}"):
                 # Log scorer parameters
                 mlflow.log_params(scorer.model_dump())
+                self._logger.debug(f"Logged scorer parameters: {scorer.model_dump()}")
 
                 # Initialize retriever
                 retriever = PresentationRetriever(
@@ -278,24 +301,31 @@ class RAGEvaluator:
                 # Run evaluation for each question
                 results_log = []
                 metric_values = {m.name: [] for m in self.metrics}
-                if hasattr(self, "llm_evaluator"):
-                    metric_values["llm_relevance_score"] = []
 
-                for _, row in questions_df.iterrows():
+                for idx, row in questions_df.iterrows():
+                    self._logger.info(
+                        f"Processing question {idx+1}/{len(questions_df)}: {row['question'][:50]}..."  # pyright: ignore[reportOperatorIssue]
+                    )
+
                     ground_truth = {
                         "question": row["question"],
                         "pres_name": row["pres_name"],
                         "pages": [int(x) if x else -1 for x in row["page"].split(",")],
                     }
 
-                    output = retriever(dict(question=row["question"]))
+                    output = retriever.retrieve(row["question"]) # pyright: ignore[reportArgumentType]
+
+                    self._logger.info(
+                        f"Retrieved {len(output['contexts'])} presentations"
+                    )
+
                     results = self.evaluate_single(
-                        retriever=retriever,
-                        question=row["question"],
+                        output=output,
+                        question=row["question"],  # pyright: ignore[reportArgumentType]
                         ground_truth=ground_truth,
                     )
 
-                    # Prepare row for results log
+                    # Update aggregated results
                     result_row = {
                         "question": row["question"],
                         "expected_presentation": row["pres_name"],
@@ -315,25 +345,24 @@ class RAGEvaluator:
                             result_row[f"metric_{metric_name}_explanation"] = (
                                 metric_result.explanation
                             )
-                    results_log.append(result_row)
-
-                    # Update metric values for averaging
-                    for metric_name, metric_result in results.items():
                         metric_values[metric_name].append(metric_result.score)
 
-                # Save metrics results
-                results_df = pd.DataFrame(results_log)
+                    results_log.append(result_row)
 
-                # Save with file
+                # Save detailed results
+                results_df = pd.DataFrame(results_log)
                 with NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
                     results_df.to_csv(f.name, index=False)
                     fpath = str("detailed_results")
                     mlflow.log_artifact(f.name, fpath)
+                    self._logger.info(f"Saved detailed results to {fpath}")
 
                 # Log average metrics
                 for name, values in metric_values.items():
-                    if values:  # Skip empty lists
-                        mlflow.log_metric(f"mean_{name}", sum(values) / len(values))
+                    if values:
+                        mean_value = sum(values) / len(values)
+                        mlflow.log_metric(f"mean_{name}", mean_value)
+                        self._logger.info(f"Mean {name}: {mean_value:.3f}")
 
 
 def main():
@@ -341,37 +370,51 @@ def main():
 
     # Load environment
     load_dotenv()
+    logger.info("Starting RAG evaluation pipeline")
 
     # Mlflow setup logging
+    setup_logging(logger)
     mlflow.langchain.autolog()
 
     # Setup components
     project_config = Config()
     llm = project_config.model_config.load_vsegpt(model="openai/gpt-4o-mini")
     embeddings = project_config.embedding_config.load_vsegpt()
+    logger.info("Initialized LLM and embeddings models")
 
     storage = ChromaSlideStore(collection_name="pres1", embedding_model=embeddings)
+    logger.info("Initialized ChromaDB storage")
 
     db_path = project_config.navigator.eval_runs / "mlruns.db"
     artifacts_path = project_config.navigator.eval_artifacts
     eval_config = EvaluationConfig(
-        experiment_name="PresRetrieve_mlflow_5",
-        metrics=["presentation_match", "page_match"],
+        experiment_name="PresRetrieve_speed_eval",
+        metrics=["presentationmatch", "pagematch"],
         scorers=[MinScorer(), HyperbolicScorer()],
         tracking_uri=f"sqlite:////{db_path}",
         artifacts_uri=f"file:////{artifacts_path}",
     )
+    logger.info("Created evaluation config")
 
     evaluator = RAGEvaluator(storage=storage, config=eval_config, llm=llm)
+    logger.info("Initialized evaluator")
 
     # Load questions
     sheet_id = os.environ["BENCHMARK_SPREADSHEET_ID"]
     questions_df = evaluator.load_questions_from_sheet(sheet_id)
+    logger.info(f"Loaded {len(questions_df)} questions from spreadsheet")
 
-    questions_df = questions_df.sample(5)
+    questions_df = questions_df.sample(5).reset_index()
+    logger.info(f"Selected {len(questions_df)} random questions for evaluation")
+    evaluator.run_evaluation(questions_df)
 
     # Run evaluation
-    evaluator.run_evaluation(questions_df)
+    try:
+        evaluator.run_evaluation(questions_df)
+        logger.info("Evaluation completed successfully")
+    except Exception as e:
+        logger.exception("Evaluation failed")
+        raise
 
 
 if __name__ == "__main__":
