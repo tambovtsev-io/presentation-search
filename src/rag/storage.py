@@ -26,6 +26,7 @@ from src.chains.prompts import JsonH1AndGDPrompt
 from src.config.model_setup import EmbeddingConfig
 from src.config.navigator import Navigator
 from src.rag import BaseScorer, HyperbolicScorer, ScorerTypes
+from src.rag.preprocess import QueryPreprocessor
 from src.rag.score import ExponentialScorer, MinScorer
 
 logger = logging.getLogger(__name__)
@@ -778,6 +779,8 @@ class PresentationRetriever(BaseModel):
     n_pages: int = -1
     retrieve_page_contexts: bool = True
 
+    query_preprocessor: Optional[QueryPreprocessor] = QueryPreprocessor()
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def format_slide(
@@ -847,9 +850,10 @@ class PresentationRetriever(BaseModel):
         Returns:
             Dictionary with presentation results and formatted context
         """
-        # Query the store
+        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
+
         results = self.storage.search_query_presentations(
-            query=query,
+            query=q_storage,
             chunk_types=chunk_types,
             n_results=n_results,
             scorer=self.scorer,
@@ -971,8 +975,9 @@ Output Formatting:
         )
 
         if len(ranking.results) != len(results):
-            print(f"Reranker returned {len(ranking.results)} results when should {len(results)}")
-            logger.warning(f"Reranker returned {len(ranking.results)} results when should {len(results)}")
+            logger.warning(
+                f"Reranker returned {len(ranking.results)} results when should {len(results)}"
+            )
 
         # Sort results by relevance score
         sorted_evals = sorted(
@@ -985,7 +990,7 @@ Output Formatting:
         reranked = [
             results[eval.document_id - 1].copy()
             for eval in sorted_evals[: self.top_k]
-            if eval.document_id-1 < len(results)
+            if eval.document_id - 1 < len(results)
         ]
 
         # Add LLM scoring info
