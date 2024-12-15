@@ -4,7 +4,7 @@ import time
 from collections import OrderedDict
 from functools import partial
 from textwrap import dedent
-from typing import Dict, List, Optional
+from typing import ClassVar, Dict, List, Optional
 
 import pandas as pd
 from langchain_core import outputs
@@ -17,6 +17,7 @@ from langsmith.evaluation.evaluator import DynamicRunEvaluator, EvaluationResult
 from langsmith.schemas import Dataset
 from langsmith.utils import LangSmithError
 from pandas._libs.tslibs.np_datetime import py_td64_to_tdstruct
+from pandas.core.dtypes.dtypes import re
 from pydantic import BaseModel, ConfigDict, Field
 from ragas import SingleTurnSample
 from ragas.llms.base import LangchainLLMWrapper
@@ -29,6 +30,7 @@ from src.rag import (
     PresentationRetriever,
     ScorerTypes,
 )
+from src.rag.storage import LLMPresentationRetriever
 
 
 @run_evaluator
@@ -211,13 +213,15 @@ class EvaluationConfig(BaseModel):
 
     # Configure Retrieval
     scorers: List[ScorerTypes] = [MinScorer(), HyperbolicScorer()]
+    retriever: PresentationRetriever
 
     # Setup Evaluators
     evaluators: List[DynamicRunEvaluator] = [presentation_match, page_match]
 
     # Configure RAGAS
     # ragas_metrics: List[type] = [Faithfulness]  # List of metric classes
-    n_contexts: int = 2
+    n_contexts: int = 10
+    n_pages: int = 3
 
     # Configure evaluation
     max_concurrency: int = 2
@@ -232,7 +236,6 @@ class RAGEvaluatorLangsmith:
 
     def __init__(
         self,
-        storage: ChromaSlideStore,
         config: EvaluationConfig,
         llm: ChatOpenAI = Config().model_config.load_vsegpt(model="openai/gpt-4o-mini"),
     ):
@@ -248,11 +251,10 @@ class RAGEvaluatorLangsmith:
         )
 
         # Setup class
-        self.storage = storage
         self.client = Client()
         self.config = config
-        llm_unwrapped = llm
-        self.llm = LangchainLLMWrapper(llm_unwrapped)
+        self.llm = llm
+        self.llm_wrapped = LangchainLLMWrapper(self.llm)
 
     @classmethod
     def load_questions_from_sheet(cls, *args, **kwargs) -> pd.DataFrame:
@@ -332,15 +334,17 @@ class RAGEvaluatorLangsmith:
             else:
                 experiment_prefix = f"{scorer.id}"
 
-            retriever = PresentationRetriever(
-                storage=self.storage, scorer=scorer, n_contexts=self.config.n_contexts
-            )
+            retriever = self.config.retriever
+            retriever.set_scorer(scorer)
             evaluate(
                 retriever,
                 experiment_prefix=experiment_prefix,
                 data=self.config.dataset_name,
                 evaluators=list(chains.values()),
-                metadata=dict(scorer=scorer.id),
+                metadata=dict(
+                    scorer=scorer.id,
+                    retriever=self.config.retriever.__class__.__name__,
+                ),
                 max_concurrency=self.config.max_concurrency,
             )
 
@@ -369,12 +373,13 @@ def main():
     storage = ChromaSlideStore(collection_name="pres0", embedding_model=embeddings)
     eval_config = EvaluationConfig(
         dataset_name="PresRetrieve_5",
+        retriever_cls=LLMPresentationRetriever,
         evaluators=[
-            # presentation_match,
-            # presentation_found,
-            # page_match,
-            # page_found,
-            create_llm_relevance_evaluator(llm),
+            presentation_match,
+            presentation_found,
+            page_match,
+            page_found,
+            # create_llm_relevance_evaluator(llm),
         ],
         scorers=[MinScorer(), ExponentialScorer()],
         max_concurrency=1,

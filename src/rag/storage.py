@@ -9,8 +9,14 @@ import numpy as np
 from chromadb.api.types import QueryResult
 from chromadb.config import Settings
 from datasets.utils import metadata
+from langchain.chains.base import Chain
 from langchain.schema import Document
+from langchain_core.callbacks.manager import CallbackManagerForChainRun
 from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseLanguageModel
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
 from langchain_openai.embeddings import OpenAIEmbeddings
 from pandas.core.algorithms import rank
 from pydantic import BaseModel, ConfigDict, Field, conbytes
@@ -769,6 +775,7 @@ class PresentationRetriever(BaseModel):
     storage: ChromaSlideStore
     scorer: BaseScorer = ExponentialScorer()
     n_contexts: int = -1
+    n_pages: int = -1
     retrieve_page_contexts: bool = True
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -850,8 +857,12 @@ class PresentationRetriever(BaseModel):
             metadata_filter=metadata_filter,
         )
 
+        return self.results2contexts(results)
+
+    def results2contexts(self, results: ScoredPresentations):
         contexts = []
-        for pres in results.presentations:
+        n_pres = self.n_contexts if self.n_contexts > 0 else len(results)
+        for i, pres in enumerate(results.presentations[:n_pres]):
 
             # Gather relevant info from presentation
             pres_info = dict(
@@ -860,8 +871,10 @@ class PresentationRetriever(BaseModel):
             )
 
             if self.retrieve_page_contexts:
-                page_contexts = self.format_contexts(pres, self.n_contexts)
-                pres_info["contexts"] = page_contexts
+                page_contexts = self.format_contexts(pres, self.n_pages)
+                pres_info["contexts"] = (
+                    page_contexts  # pyright: ignore[reportArgumentType]
+                )
 
             contexts.append(pres_info)
 
@@ -873,6 +886,140 @@ class PresentationRetriever(BaseModel):
 
     def __call__(self, inputs: Dict[str, Any]):
         return self.retrieve(inputs["question"])
+
+    def set_scorer(self, scorer: ScorerTypes):
+        self.scorer = scorer
+
+
+class LLMPresentationRetriever(PresentationRetriever):
+    """LLM-enhanced retriever that reranks results using structured relevance scoring"""
+
+    class RelevanceRanking(BaseModel):
+        class RelevanceEval(BaseModel):
+            document_id: int = Field(description="The id of the document")
+            relevance: int = Field(description="Relevance score from 1-10")
+            explanation: str = Field(
+                description="Short passage to clarify relevance score"
+            )
+
+        results: list[RelevanceEval]
+
+    llm: ChatOpenAI
+    top_k: int = 10
+
+    _parser: JsonOutputParser = JsonOutputParser(pydantic_object=RelevanceRanking)
+
+    rerank_prompt: PromptTemplate = PromptTemplate(
+        template="""You are evaluating search results for presentation slides.
+Rate how relevant each document is to the given query.
+The relevance score should be from 1-10 where:
+- 1-3: Low relevance, mostly unrelated content
+- 4-6: Moderate relevance, some related points
+- 7-8: High relevance, clearly addresses the query
+- 9-10: Perfect match, directly answers the query
+
+Evaluate ALL documents and provide brief explanations.
+
+Presentations to evaluate:
+
+{context_str}
+
+Question: {query_str}
+
+Output Formatting:
+{format_instructions}
+""",
+        input_variables=["context_str", "query_str", "format_instructions"],
+    )
+
+    def _format_presentations(self, presentations: List[Dict[str, Any]]) -> str:
+        """Format presentations for LLM evaluation"""
+        formatted = []
+        for i, pres in enumerate(presentations):
+            content = [f"Document {i+1}:"]
+            content.append(f"Title: {pres['pres_name']}")
+
+            if "contexts" in pres:
+                content.append("Content:")
+                content.extend(pres["contexts"])
+
+            formatted.append("\n".join(content))
+
+        return "\n\n".join(formatted)
+
+    def _rerank_results(
+        self,
+        results: List[Dict[str, Any]],
+        query: str,
+        run_manager: Optional[CallbackManagerForChainRun] = None,
+    ) -> List[Dict[str, Any]]:
+        """Rerank results using LLM relevance scoring"""
+        # Format input for LLM
+        context_str = self._format_presentations(results)
+
+        # Get LLM evaluation
+        chain = self.rerank_prompt | self.llm.with_structured_output(
+            self.RelevanceRanking
+        )
+
+        ranking = chain.invoke(
+            {
+                "context_str": context_str,
+                "query_str": query,
+                "format_instructions": self._parser.get_format_instructions(),
+            },
+        )
+
+        if len(ranking.results) != len(results):
+            print(f"Reranker returned {len(ranking.results)} results when should {len(results)}")
+            logger.warning(f"Reranker returned {len(ranking.results)} results when should {len(results)}")
+
+        # Sort results by relevance score
+        sorted_evals = sorted(
+            ranking.results,  # pyright: ignore[reportAttributeAccessIssue]
+            key=lambda x: x.relevance,
+            reverse=True,
+        )
+
+        # Reorder original results
+        reranked = [
+            results[eval.document_id - 1].copy()
+            for eval in sorted_evals[: self.top_k]
+            if eval.document_id-1 < len(results)
+        ]
+
+        # Add LLM scoring info
+        for i in range(min(len(reranked), self.top_k)):
+            reranked[i]["llm_score"] = sorted_evals[i].relevance
+            reranked[i]["llm_explanation"] = sorted_evals[i].explanation
+
+        return reranked
+
+    def __call__(
+        self,
+        inputs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Run the chain"""
+        # Get base retrieval results
+        base_results = super().retrieve(query=inputs["question"])
+
+        # Rerank using LLM
+        if len(base_results["contexts"]) > 1:
+            reranked = self._rerank_results(
+                base_results["contexts"],
+                inputs["question"],
+            )
+        else:
+            reranked = base_results["contexts"]
+
+        # Combine contexts from reranked results
+        all_contexts = []
+        for result in reranked:
+            all_contexts.extend(result["contexts"])
+
+        return dict(
+            contexts=reranked,
+        )
 
 
 # def create_slides_database(

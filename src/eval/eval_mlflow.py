@@ -295,7 +295,7 @@ class RAGEvaluator:
                 retriever = PresentationRetriever(
                     storage=self.storage,
                     scorer=scorer,
-                    n_contexts=self.config.n_contexts,
+                    n_pages=self.config.n_contexts,
                 )
 
                 # Run evaluation for each question
@@ -313,7 +313,7 @@ class RAGEvaluator:
                         "pages": [int(x) if x else -1 for x in row["page"].split(",")],
                     }
 
-                    output = retriever.retrieve(row["question"]) # pyright: ignore[reportArgumentType]
+                    output = retriever(dict(question=row["question"]))
 
                     self._logger.info(
                         f"Retrieved {len(output['contexts'])} presentations"
