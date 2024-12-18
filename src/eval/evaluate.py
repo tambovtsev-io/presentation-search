@@ -4,7 +4,7 @@ import time
 from collections import OrderedDict
 from functools import partial
 from textwrap import dedent
-from typing import ClassVar, Dict, List, Optional
+from typing import ClassVar, Dict, List, Optional, Union
 
 import pandas as pd
 from langchain_core import outputs
@@ -12,7 +12,7 @@ from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langsmith import Client, evaluate, evaluation
-from langsmith.evaluation import EvaluationResult, run_evaluator
+from langsmith.evaluation import EvaluationResult, aevaluate, run_evaluator
 from langsmith.evaluation.evaluator import DynamicRunEvaluator, EvaluationResults
 from langsmith.schemas import Dataset
 from langsmith.utils import LangSmithError
@@ -213,7 +213,7 @@ class EvaluationConfig(BaseModel):
 
     # Configure Retrieval
     scorers: List[ScorerTypes] = [MinScorer(), HyperbolicScorer()]
-    retriever: PresentationRetriever
+    retriever: Union[PresentationRetriever, LLMPresentationRetriever]
 
     # Setup Evaluators
     evaluators: List[DynamicRunEvaluator] = [presentation_match, page_match]
@@ -229,6 +229,14 @@ class EvaluationConfig(BaseModel):
     sheet_id: Optional[str] = os.environ.get("BENCHMARK_SPREADSHEET_ID")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def __post_init__(self):
+        self.retriever.n_contexts = self.n_contexts
+        self.retriever.n_pages = self.n_pages
+
+    def get_scored_retriever(self, scorer: ScorerTypes):
+        self.retriever.set_scorer(scorer)
+        return self.retriever
 
 
 class RAGEvaluatorLangsmith:
@@ -324,18 +332,17 @@ class RAGEvaluatorLangsmith:
         chains = self._build_evaluator_chains()
         # exp_suffix = str(uuid.uuid4())[:6]
 
-        # NOTE Not sure whether it is only for notebooks
-        # import nest_asyncio
-        # nest_asyncio.apply()
-
         for scorer in self.config.scorers:
             if self.config.experiment_prefix:
                 experiment_prefix = f"{self.config.experiment_prefix}_{scorer.id}"
             else:
                 experiment_prefix = f"{scorer.id}"
 
-            retriever = self.config.retriever
-            retriever.set_scorer(scorer)
+            retriever = self.config.get_scored_retriever(scorer)
+
+            # async def do_retrieve(*args, **kwargs):
+            #     return await retriever.aretrieve(*args, **kwargs)
+
             evaluate(
                 retriever,
                 experiment_prefix=experiment_prefix,

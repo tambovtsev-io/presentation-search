@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections import OrderedDict
 from pathlib import Path
@@ -340,10 +341,16 @@ class SlideIndexer:
             #         metadata=metadata
             #     ))
 
-            logger.info(
-                f"Created {len(chunks)} chunks for slide {slide.page_num} "
-                f"of '{slide.pdf_path.stem}'"
-            )
+            if len(chunks):
+                logger.info(
+                    f"Created {len(chunks)} chunks for slide {slide.page_num} "
+                    f"of '{slide.pdf_path.stem}'"
+                )
+            else:
+                logger.warning(
+                    f"Created {len(chunks)} chunks for slide {slide.page_num} "
+                    f"of '{slide.pdf_path.stem}'"
+                )
             return chunks
 
         except Exception as e:
@@ -767,7 +774,7 @@ class ChromaSlideStore:
 
         # Wait for all tasks to complete
         await gather(*tasks)
-        logger.info(f"Completed processing presentation: {presentation.name}")
+        logger.info(f"Completed processing presentation: '{presentation.name}'")
 
 
 class PresentationRetriever(BaseModel):
@@ -782,6 +789,10 @@ class PresentationRetriever(BaseModel):
     query_preprocessor: Optional[QueryPreprocessor] = QueryPreprocessor()
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @property
+    def id(self) -> str:
+        return self.__class__.__name__.lower()
 
     def format_slide(
         self, slide: SearchResultPage, metadata: Optional[Dict[str, Any]] = None
@@ -830,7 +841,7 @@ class PresentationRetriever(BaseModel):
 
         return slide_texts
 
-    def retrieve(
+    async def aretrieve(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -862,6 +873,10 @@ class PresentationRetriever(BaseModel):
         )
 
         return self.results2contexts(results)
+
+    def retrieve(self, *args, **kwargs) -> Dict[str, Any]:
+        """Synchronous wrapper for retrieve"""
+        return asyncio.run(self.aretrieve(*args, **kwargs))
 
     def results2contexts(self, results: ScoredPresentations):
         contexts = []
@@ -1025,6 +1040,87 @@ Output Formatting:
         return dict(
             contexts=reranked,
         )
+
+    async def _arerank_results(
+        self,
+        results: List[Dict[str, Any]],
+        query: str,
+        run_manager: Optional[CallbackManagerForChainRun] = None,
+    ) -> List[Dict[str, Any]]:
+        """Rerank results using LLM relevance scoring asynchronously"""
+        # Format input for LLM
+        context_str = self._format_presentations(results)
+
+        # Get LLM evaluation asynchronously
+        chain = self.rerank_prompt | self.llm.with_structured_output(
+            self.RelevanceRanking
+        )
+        ranking = await chain.ainvoke(
+            {
+                "context_str": context_str,
+                "query_str": query,
+                "format_instructions": self._parser.get_format_instructions(),
+            },
+        )
+
+        if len(ranking.results) != len(results):
+            logger.warning(
+                f"Reranker returned {len(ranking.results)} results when should {len(results)}"
+            )
+
+        # Sort results by relevance score
+        sorted_evals = sorted(
+            ranking.results,
+            key=lambda x: x.relevance,
+            reverse=True,
+        )
+
+        # Reorder original results
+        reranked = [
+            results[eval.document_id - 1].copy()
+            for eval in sorted_evals[: self.top_k]
+            if eval.document_id - 1 < len(results)
+        ]
+
+        # Add LLM scoring info
+        for i in range(min(len(reranked), self.top_k)):
+            reranked[i]["llm_score"] = sorted_evals[i].relevance
+            reranked[i]["llm_explanation"] = sorted_evals[i].explanation
+
+        return reranked
+
+    async def aretrieve(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 30,
+        max_distance: float = 2.0,
+        metadata_filter: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        """Retrieve presentations and format context asynchronously"""
+        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
+
+        results = self.storage.search_query_presentations(
+            query=q_storage,
+            chunk_types=chunk_types,
+            n_results=n_results,
+            scorer=self.scorer,
+            max_distance=max_distance,
+            metadata_filter=metadata_filter,
+        )
+
+        base_results = self.results2contexts(results)
+
+        # Rerank using LLM asynchronously
+        if len(base_results["contexts"]) > 1:
+            reranked = await self._arerank_results(
+                base_results["contexts"],
+                query,
+            )
+        else:
+            reranked = base_results["contexts"]
+
+        return dict(contexts=reranked)
 
 
 # def create_slides_database(

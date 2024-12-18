@@ -1,7 +1,10 @@
+import asyncio
 import logging
 import os
 import time
 from abc import ABC, abstractmethod
+from datetime import datetime
+from json import load
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Dict, List, Optional, Protocol, Union
@@ -9,13 +12,16 @@ from typing import Any, Dict, List, Optional, Protocol, Union
 import mlflow
 import mlflow.config
 import pandas as pd
+from dotenv import load_dotenv
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field
+from tqdm import tqdm
 
 from src.config import Config, load_spreadsheet
 from src.config.logging import setup_logging
+from src.config.spreadsheets import GoogleSpreadsheetManager
 from src.rag import (
     ChromaSlideStore,
     HyperbolicScorer,
@@ -23,6 +29,7 @@ from src.rag import (
     PresentationRetriever,
     ScorerTypes,
 )
+from src.rag.storage import LLMPresentationRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +53,19 @@ class BaseMetric(ABC):
         return self.__class__.__name__.lower()
 
     @abstractmethod
-    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
-        """Calculate metric value"""
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+        """Calculate metric value asynchronously"""
         pass
+
+    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+        """Synchronous wrapper for calculate"""
+        return asyncio.run(self.acalculate(run_output, ground_truth))
 
 
 class PresentationMatch(BaseMetric):
     """Check if top-1 retrieved presentation matches ground truth"""
 
-    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         best_pres_info = run_output["contexts"][0]
         best_pres_name = best_pres_info["pres_name"]
         score = float(best_pres_name == ground_truth["pres_name"])
@@ -68,7 +79,7 @@ class PresentationMatch(BaseMetric):
 class PresentationFound(BaseMetric):
     """Check if ground truth presentation is in top-k"""
 
-    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         found_pres_names = [c["pres_name"] for c in run_output["contexts"]]
         score = float(ground_truth["pres_name"] in found_pres_names)
         return MetricResult(
@@ -81,7 +92,7 @@ class PresentationFound(BaseMetric):
 class PageMatch(BaseMetric):
     """Check if best page matches ground truth"""
 
-    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         score = 0.0
         explanation = ""
         for pres_info in run_output["contexts"]:
@@ -100,6 +111,56 @@ class PageMatch(BaseMetric):
         return MetricResult(name=self.name, score=score, explanation=explanation)
 
 
+class PageFound(BaseMetric):
+    """Check if any of ground truth pages are found in retrieved results
+
+    The page is considered found if it appears in ANY position in the correct presentation.
+    This is less strict than PageMatch which checks best matching page.
+    """
+
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+        """Calculate metric value"""
+        score = 0.0
+        explanation = ""
+
+        # Get all pages from each presentation's results
+        for pres_info in run_output["contexts"]:
+            # Only check pages from the correct presentation
+            if pres_info["pres_name"] == ground_truth["pres_name"]:
+                found_pages = pres_info["pages"]
+                reference_pages = ground_truth["pages"]
+
+                # Handle case when no specific page required
+                if not reference_pages:
+                    score = 1.0
+                    explanation = "No specific page required"
+                    break
+
+                # Check if any reference page is found
+                matching_pages = set(found_pages) & set(reference_pages)
+                if matching_pages:
+                    score = 1.0
+                    explanation = f"Found pages {matching_pages} in positions {[found_pages.index(p)+1 for p in matching_pages]}"
+                    break
+                else:
+                    explanation = f"No matching pages found. Retrieved: {found_pages}, Expected: {reference_pages}"
+
+        return MetricResult(name=self.name, score=score, explanation=explanation)
+
+
+class PresentationCount(BaseMetric):
+    """Count number of retrieved presentations"""
+
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+        """Count presentations in retrieved results"""
+        n_pres = len(run_output["contexts"])
+        return MetricResult(
+            name=self.name,
+            score=float(n_pres),
+            explanation=f"Retrieved {n_pres} presentations",
+        )
+
+
 class LLMRelevance(BaseMetric):
     """LLM-based relevance scoring"""
 
@@ -109,8 +170,11 @@ class LLMRelevance(BaseMetric):
 
         model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def __init__(self, llm: ChatOpenAI, n_contexts: int = -1):
+    def __init__(
+        self, llm: ChatOpenAI, n_contexts: int = -1, rate_limit_timeout: float = -1
+    ):
         self.n_contexts = n_contexts
+        self.rate_limit_timeout = rate_limit_timeout
         prompt_template = PromptTemplate.from_template(
             """\
 You will act as an expert relevance assessor for a presentation retrieval system. Your task is to evaluate whether the retrieved slide descriptions contain relevant information for the user's query. Consider both textual content and references to visual elements (images, charts, graphs) as equally valid sources of information.
@@ -122,40 +186,28 @@ Evaluation Rules:
 - Consider partial matches as relevant (score 1) as long as they provide some value in answering the query
 
 For each evaluation, you will receive:
-1. The user's query
-2. Retrieved slide descriptions
-
-# Query
-{query}
-
---- END OF QUERY ---
+1. Retrieved slide descriptions
+2. The user's question
 
 # Slide Descriptions
-{context}
+{context_str}
 
 --- END OF SLIDE DESCRIPTIONS ---
 
-Format output as JSON:
+Question: {query_str}
 
-```json
-{{
-  "explanation": string, # Clear justification explaining why the content is relevant or irrelevant
-  "relevance_score": int  # 1 if any relevant information is found, 0 if completely irrelevant
-}}
-```
+Output formatting:
+{format_instructions}
 """
         )
 
-        self.chain = (
-            prompt_template
-            | llm
-            | StrOutputParser()
-            | JsonOutputParser(pydantic_object=self.RelevanceOutput)
-        )
+        self._parser = JsonOutputParser(pydantic_object=self.RelevanceOutput)
+        self.chain = prompt_template | llm.with_structured_output(self.RelevanceOutput)
 
-    def calculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         """Evaluate relevance of retrieved content"""
-        time.sleep(1.05)  # Rate limiting
+        if self.rate_limit_timeout > 0:
+            time.sleep(1.05)  # Rate limiting
         question = ground_truth["question"]
         pres = run_output["contexts"][0]
 
@@ -166,11 +218,18 @@ Format output as JSON:
         )
         pres_context = "\n\n---\n\n".join(contexts_used)
 
-        llm_out = self.chain.invoke(dict(query=question, context=pres_context))
+        llm_out = await self.chain.ainvoke(
+            dict(
+                query_str=question,
+                context_str=pres_context,
+                format_instructions=self._parser.get_format_instructions(),
+            )
+        )
+        llm_out_dict = llm_out.model_dump()
         return MetricResult(
             name=self.name,
-            score=float(llm_out["relevance_score"]),
-            explanation=llm_out["explanation"],
+            score=float(llm_out_dict["relevance_score"]),
+            explanation=llm_out_dict["explanation"],
         )
 
 
@@ -181,12 +240,15 @@ class MetricsRegistry:
         "presentationmatch": PresentationMatch,
         "presentationfound": PresentationFound,
         "pagematch": PageMatch,
+        "pagefound": PageFound,
         "llmrelevance": LLMRelevance,
+        "presentationcount": PresentationCount,
     }
 
     @classmethod
     def create(cls, metric_name: str, **kwargs) -> BaseMetric:
         """Create metric instance by name"""
+        # __import__('pdb').set_trace()
         metric_cls = cls._metrics.get(metric_name.lower())
         if metric_cls is None:
             raise ValueError(f"Unknown metric: {metric_name}")
@@ -197,14 +259,21 @@ class EvaluationConfig(BaseModel):
     """Configuration for RAG evaluation"""
 
     experiment_name: str = "RAG_test"
-    tracking_uri: str = f"sqlite:///{Config().navigator.eval_runs / 'mlruns.db'}"
+    tracking_uri: str = f"sqlite:////{Config().navigator.eval_runs / 'mlruns.db'}"
     artifacts_uri: str = f"file:////{Config().navigator.eval_artifacts}"
 
     scorers: List[ScorerTypes]
-    n_contexts: int = 2
-    metrics: List[str] = ["presentation_match", "page_match"]
+    retriever: Union[PresentationRetriever, LLMPresentationRetriever]
+    metrics: List[str] = ["presentationmatch", "pagematch"]
+    n_judge_contexts: int = 10
+
+    write_to_google: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def get_retriever_with_scorer(self, scorer: ScorerTypes) -> PresentationRetriever:
+        self.retriever.set_scorer(scorer)
+        return self.retriever
 
 
 class RAGEvaluator:
@@ -212,17 +281,26 @@ class RAGEvaluator:
 
     def __init__(
         self,
-        storage: ChromaSlideStore,
         config: EvaluationConfig,
         llm: Optional[ChatOpenAI] = None,
+        max_concurrent: int = 5,
     ):
+        load_dotenv()
+
         # Setup logging
         self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
         # Setup Evaluation
-        self.storage = storage
         self.config = config
         self.llm = llm or Config().model_config.load_vsegpt(model="openai/gpt-4o-mini")
+        self._max_concurrent = max_concurrent
+
+        # Setup GoogleSheets
+        eval_spreadsheet_id = os.getenv("EVAL_SPREADSHEET_ID")
+        if eval_spreadsheet_id is not None:
+            self.gsheets = GoogleSpreadsheetManager(eval_spreadsheet_id)
+        else:
+            raise FileNotFoundError("no eval_spreadsheet_id in .env")
 
         # Setup MLFlow
         mlflow.set_tracking_uri(config.tracking_uri)
@@ -236,7 +314,7 @@ class RAGEvaluator:
         for metric_name in config.metrics:
             kwargs = {}
             if "llm" in metric_name and llm:
-                kwargs = dict(llm=self.llm, n_contexts=config.n_contexts)
+                kwargs = dict(llm=self.llm, n_contexts=config.n_judge_contexts)
             self.metrics.append(MetricsRegistry.create(metric_name, **kwargs))
             self._logger.info(f"Initialized metric: {metric_name}")
 
@@ -247,28 +325,152 @@ class RAGEvaluator:
         df.fillna(dict(page=""), inplace=True)
         return df
 
-    def evaluate_single(
+    async def evaluate_single(
         self, output: Dict[str, Any], question: str, ground_truth: Dict
     ) -> Dict[str, MetricResult]:
-        """Evaluate single query"""
-        # Logging
+        """Evaluate single search result against ground truth.
+
+        Args:
+            output: Dictionary with retrieval results including:
+                - contexts: List of presentation results with metadata
+            question: Original search query
+            ground_truth: Dictionary with:
+                - pres_name: Expected presentation name
+                - pages: List of expected page numbers
+                - question: Original question
+
+        Returns:
+            Dictionary mapping metric names to MetricResult objects
+        """
+        # Log evaluation start
         self._logger.info(f"Evaluating question: {question}")
 
         results = {}
 
+        # Calculate each metric
         for metric in self.metrics:
-            result = metric.calculate(output, ground_truth)
-            results[metric.name] = result
+            try:
+                result = await metric.acalculate(output, ground_truth)
+                results[metric.name] = result
 
-            self._logger.info(f"Metric {metric.name}: {result.score}")
+                # Log metric result
+                log_msg = f"Metric {metric.name}: {result.score}"
+                if result.explanation:
+                    log_msg += f" ({result.explanation})"
+                self._logger.info(log_msg)
+
+            except Exception as e:
+                self._logger.error(
+                    f"Failed to calculate metric {metric.name}: {str(e)}"
+                )
+                # Create failure result
+                results[metric.name] = MetricResult(
+                    name=metric.name,
+                    score=0.0,
+                    explanation=f"Calculation failed: {str(e)}",
+                )
 
         return results
 
+    async def process_question(
+        self,
+        retriever: LLMPresentationRetriever,
+        row: pd.Series,
+        metric_values: Dict[str, List[float]],
+        results_log: List[Dict],
+        question_idx: int,
+        total_questions: int,
+        semaphore: asyncio.Semaphore,
+    ) -> None:
+        """Process single question with semaphore-controlled concurrency"""
+        async with semaphore:
+            self._logger.info(
+                f"Processing question {question_idx+1}/{total_questions}: "
+                f"{row['question'][:50]}..."
+            )
+
+            ground_truth = {
+                "question": row["question"],
+                "pres_name": row["pres_name"],
+                "pages": [int(x) if x else -1 for x in row["page"].split(",")],
+            }
+
+            try:
+                # Retrieve asynchronously
+                output = await retriever.aretrieve(query=row["question"])
+
+                # Evaluate results
+                results = await self.evaluate_single(
+                    output=output,
+                    question=row["question"],
+                    ground_truth=ground_truth,
+                )
+
+                # Update aggregated results
+                result_row = {
+                    "question": row["question"],
+                    "expected_presentation": row["pres_name"],
+                    "expected_pages": row["page"],
+                    "retrieved_presentations": [
+                        p["pres_name"] for p in output["contexts"]
+                    ],
+                    "retrieved_pages": [
+                        ",".join(map(str, p["pages"])) for p in output["contexts"]
+                    ],
+                }
+
+                for metric_name, metric_result in results.items():
+                    result_row[f"metric_{metric_name}_score"] = metric_result.score
+                    if metric_result.explanation:
+                        result_row[f"metric_{metric_name}_explanation"] = (
+                            metric_result.explanation
+                        )
+                    metric_values[metric_name].append(metric_result.score)
+
+                results_log.append(result_row)
+
+            except Exception as e:
+                self._logger.error(
+                    f"Failed to process question {question_idx+1}: {str(e)}"
+                )
+
+    async def process_questions_batch(
+        self,
+        retriever: LLMPresentationRetriever,
+        questions_df: pd.DataFrame,
+        metric_values: Dict[str, List[float]],
+        results_log: List[Dict],
+    ) -> None:
+        """Process questions with controlled concurrency"""
+        # Create semaphore within the async context
+        semaphore = asyncio.Semaphore(self._max_concurrent)
+
+        tasks = [
+            self.process_question(
+                retriever=retriever,
+                row=row,
+                metric_values=metric_values,
+                results_log=results_log,
+                question_idx=idx,
+                total_questions=len(questions_df),
+                semaphore=semaphore,
+            )
+            for idx, (_, row) in enumerate(questions_df.iterrows())
+        ]
+
+        for completed in tqdm(
+            asyncio.as_completed(tasks),
+            desc=f"Processing questions (max {self._max_concurrent} concurrent)",
+            total=len(tasks),
+        ):
+            await completed
+
     def run_evaluation(self, questions_df: pd.DataFrame) -> None:
-        """Run evaluation for all configured scorers"""
+        """Run evaluation with async LLM queries and controlled concurrency"""
+        timestamp = datetime.now().replace(microsecond=0).isoformat()
         self._logger.info(f"Starting evaluation with {len(questions_df)} questions")
 
-        # Load the existing experiment or create a new one
+        # MLflow setup
         experiment = mlflow.get_experiment_by_name(self.config.experiment_name)
         if experiment is not None:
             experiment_id = experiment.experiment_id
@@ -287,77 +489,42 @@ class RAGEvaluator:
         for scorer in self.config.scorers:
             self._logger.info(f"Evaluating with scorer: {scorer.id}")
             with mlflow.start_run(run_name=f"scorer_{scorer.id}"):
-                # Log scorer parameters
                 mlflow.log_params(scorer.model_dump())
                 self._logger.debug(f"Logged scorer parameters: {scorer.model_dump()}")
 
                 # Initialize retriever
-                retriever = PresentationRetriever(
-                    storage=self.storage,
-                    scorer=scorer,
-                    n_pages=self.config.n_contexts,
-                )
+                retriever = self.config.get_retriever_with_scorer(scorer)
 
-                # Run evaluation for each question
+                # Initialize aggregation containers
                 results_log = []
                 metric_values = {m.name: [] for m in self.metrics}
 
-                for idx, row in questions_df.iterrows():
-                    self._logger.info(
-                        f"Processing question {idx+1}/{len(questions_df)}: {row['question'][:50]}..."  # pyright: ignore[reportOperatorIssue]
+                # Process questions with async handling
+                asyncio.run(
+                    self.process_questions_batch(
+                        retriever, questions_df, metric_values, results_log
                     )
+                )
 
-                    ground_truth = {
-                        "question": row["question"],
-                        "pres_name": row["pres_name"],
-                        "pages": [int(x) if x else -1 for x in row["page"].split(",")],
-                    }
-
-                    output = retriever(dict(question=row["question"]))
-
-                    self._logger.info(
-                        f"Retrieved {len(output['contexts'])} presentations"
-                    )
-
-                    results = self.evaluate_single(
-                        output=output,
-                        question=row["question"],  # pyright: ignore[reportArgumentType]
-                        ground_truth=ground_truth,
-                    )
-
-                    # Update aggregated results
-                    result_row = {
-                        "question": row["question"],
-                        "expected_presentation": row["pres_name"],
-                        "expected_pages": row["page"],
-                        "retrieved_presentations": [
-                            p["pres_name"] for p in output["contexts"]
-                        ],
-                        "retrieved_pages": [
-                            ",".join(map(str, p["pages"])) for p in output["contexts"]
-                        ],
-                    }
-
-                    # Add metrics results and explanations
-                    for metric_name, metric_result in results.items():
-                        result_row[f"metric_{metric_name}_score"] = metric_result.score
-                        if metric_result.explanation:
-                            result_row[f"metric_{metric_name}_explanation"] = (
-                                metric_result.explanation
-                            )
-                        metric_values[metric_name].append(metric_result.score)
-
-                    results_log.append(result_row)
-
-                # Save detailed results
+                # Process results
                 results_df = pd.DataFrame(results_log)
+                results_df["experiment_id"] = experiment_id
+                results_df["scorer"] = scorer.id
+                results_df["retriever"] = retriever.id
+                results_df["timestamp"] = timestamp
+
+                # Save results
                 with NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
                     results_df.to_csv(f.name, index=False)
                     fpath = str("detailed_results")
                     mlflow.log_artifact(f.name, fpath)
                     self._logger.info(f"Saved detailed results to {fpath}")
 
-                # Log average metrics
+                # Write to google sheets if enabled
+                if self.config.write_to_google:
+                    self.write_to_google_sheet(results_df)
+
+                # Log metrics
                 for name, values in metric_values.items():
                     if values:
                         mean_value = sum(values) / len(values)
