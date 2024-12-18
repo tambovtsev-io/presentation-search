@@ -27,16 +27,15 @@ class QueryPreprocessor:
         self._remove_stopwords = remove_stopwords
         self._stopwords = set(stopwords.words("russian"))
 
-        # fmt: off
         # Add custom Russian stopwords
+        # fmt: off
         self._custom_stopwords = {
-            "разные",
-            "какие", "когда", "который", "которой", "которая", "которые", "был", "была", "были",
+            "разные", "какие", "когда",
+            "который", "которой", "которая", "которые", "был", "была", "были",
             "также", "именно", "либо", "или", "где", "как", "какой", "какая",
             "быть", "есть", "это", "эта", "эти", "для", "при", "про"
         }
         self._stopwords.update(self._custom_stopwords)
-
         # fmt: on
 
         # Define query patterns
@@ -147,13 +146,16 @@ if __name__ == "__main__":
                 print(f"{query} -> \033[94m{cleaned} \033[0m")
 
         def clean_gsheets(
-            self, sheet_id: Optional[str] = None, gid: Optional[str] = None
+            self,
+            sheet_id: Optional[str] = None,
+            gid: Optional[str] = None,
+            remove_stopwords: bool = True,
         ):
             from src.config.spreadsheets import load_spreadsheet
 
             df = load_spreadsheet(sheet_id, gid)
             questions = df["question"]
-            return self.clean(*questions)
+            return self.clean(*questions, remove_stopwords=remove_stopwords)
 
     # Start CLI
     fire.Fire(CLI)
