@@ -203,8 +203,8 @@ ScorerTypes = Union[
 ]
 
 
-class ScoringFactory:
-    """Factory for creating scorer instances"""
+class ScorerFactory(BaseModel):
+    """Factory for creating scorer instances from specifications"""
 
     @staticmethod
     def create_default() -> BaseScorer:
@@ -214,12 +214,30 @@ class ScoringFactory:
     @staticmethod
     def create_from_id(scorer_id: str) -> BaseScorer:
         """Create scorer from identifier string"""
-        if scorer_id == "weightedscorer":
+        if scorer_id == "min":
+            return MinScorer()
+        elif scorer_id == "weighted":
             return WeightedScorer()
         elif scorer_id.startswith("hyperbolic"):
-            k = float(scorer_id.split("k")[1].split("_")[0])
-            p = float(scorer_id.split("p")[1])
-            return HyperbolicScorer(k=k, p=p)
+            if "_weighted" in scorer_id:
+                k = float(scorer_id.split("k")[-1].split("_")[0])
+                p = float(scorer_id.split("p")[-1])
+                return HyperbolicWeightedScorer(k=k, p=p)
+            else:
+                k = float(scorer_id.split("k")[-1].split("_")[0])
+                p = float(scorer_id.split("p")[-1])
+                return HyperbolicScorer(k=k, p=p)
+        elif scorer_id.startswith("exponential"):
+            if "_weighted" in scorer_id:
+                a = float(scorer_id.split("a")[-1].split("_")[0])
+                w = float(scorer_id.split("w")[-1].split("_")[0])
+                s = float(scorer_id.split("s")[-1])
+                return ExponentialWeightedScorer(a=a, w=w, s=s)
+            else:
+                a = float(scorer_id.split("a")[-1].split("_")[0])
+                w = float(scorer_id.split("w")[-1].split("_")[0])
+                s = float(scorer_id.split("s")[-1])
+                return ExponentialScorer(a=a, w=w, s=s)
         elif scorer_id.startswith("step"):
             # Parse ranges from id: step_1-1_3-0.9_8-0.7
             ranges_str = scorer_id.split("_")[1:]
@@ -236,3 +254,36 @@ class ScoringFactory:
             return LinearScorer(points=points)
 
         raise ValueError(f"Unknown scorer id: {scorer_id}")
+
+    @staticmethod
+    def parse_scorer_specs(specs: List[str]) -> List[BaseScorer]:
+        """Parse scorer specifications into scorer instances
+
+        Args:
+            specs: List of scorer specifications in format:
+                - Simple: "min", "weighted"
+                - Parameterized: "hyperbolic_k2.0_p3.0", "exponential_a0.7_w1.7_s2.8"
+                - Step/Linear: "step_1-1.0_3-0.9_8-0.7"
+
+        Returns:
+            List of configured scorer instances
+        """
+        scorers = []
+        for spec in specs:
+            try:
+                scorer = ScorerFactory.create_from_id(spec.lower())
+                scorers.append(scorer)
+            except Exception as e:
+                raise ValueError(f"Failed to parse scorer spec '{spec}': {str(e)}")
+        return scorers
+
+
+class ScorerPresets:
+    """Predefined scorer configurations"""
+
+    DEFAULT = ["min", "hyperbolic_k2.0_p3.0"]
+    WEIGHTED = ["weighted", "hyperbolic_weighted_k2.0_p3.0"]
+    EXPONENTIAL = ["exponential_a0.7_w1.7_s2.8", "exponential_weighted_a0.7_w1.7_s2.8"]
+    STEP = ["step_1-1.0_3-0.9_8-0.7"]
+    LINEAR = ["linear_1-1.0_3-0.9_8-0.7"]
+    ALL = DEFAULT + WEIGHTED + EXPONENTIAL + STEP + LINEAR

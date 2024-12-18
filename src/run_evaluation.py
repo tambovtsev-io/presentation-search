@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import os
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import fire
 import pandas as pd
@@ -13,17 +14,19 @@ from src.config import Config, Provider, load_spreadsheet
 from src.config.logging import setup_logging
 from src.eval.eval_mlflow import (
     BaseMetric,
-    EvaluationConfig,
+    MlflowConfig,
     PageMatch,
     PresentationMatch,
-    RAGEvaluator,
+    RAGEvaluatorMlflow,
 )
-from src.rag import (
-    ChromaSlideStore,
+from src.eval.evaluate import LangsmithConfig, RAGEvaluatorLangsmith
+from src.rag import ChromaSlideStore, PresentationRetriever
+from src.rag.score import (
+    BaseScorer,
+    ExponentialScorer,
     HyperbolicScorer,
-    MinScorer,
-    PresentationRetriever,
-    ScorerTypes,
+    ScorerFactory,
+    ScorerPresets,
 )
 from src.rag.storage import LLMPresentationRetriever
 
@@ -50,6 +53,16 @@ def get_retriever(
     return PresentationRetriever(storage=storage)
 
 
+@dataclass
+class EvalComponents:
+    """Container for evaluation components"""
+
+    llm: ChatOpenAI
+    storage: ChromaSlideStore
+    retriever: Union[PresentationRetriever, LLMPresentationRetriever]
+    scorer_instances: List[BaseScorer]
+
+
 class EvaluationCLI:
     """CLI for RAG evaluation pipeline"""
 
@@ -58,6 +71,93 @@ class EvaluationCLI:
         setup_logging(logger, Path("logs"))
         self.config = Config()
 
+    def _get_scorers(self, scorers: List[str]) -> List[BaseScorer]:
+        """Get scorer instances from specifications
+
+        Args:
+            scorers: List of scorer specifications. Each item can be:
+                - Preset name: "default", "weighted", "all"
+                - Scorer spec: "min", "hyperbolic_k2.0_p3.0", etc
+
+        Returns:
+            List of configured scorer instances
+        """
+        scorer_specs = []
+
+        # Process each specification
+        for spec in scorers:
+            if hasattr(ScorerPresets, spec.upper()):
+                scorer_specs.extend(getattr(ScorerPresets, spec.upper()))
+            else:
+                scorer_specs.append(spec)
+
+        # Create scorer instances
+        scorer_instances = ScorerFactory.parse_scorer_specs(scorer_specs)
+
+        if not scorer_instances:
+            logger.warning("No valid scorers specified, using default")
+            scorer_instances = [ScorerFactory.create_default()]
+        else:
+            logger.info(
+                f"Using scorers: {[type(s).__name__ for s in scorer_instances]}"
+            )
+
+        return scorer_instances
+
+    def _initialize_components(
+        self,
+        retriever: str,
+        provider: str,
+        model_name: Optional[str],
+        collection: str,
+        scorers: List[str],
+        temperature: float = 0.2,
+    ) -> EvalComponents:
+        """Initialize common evaluation components
+
+        Args:
+            retriever: Retriever type ('basic' or 'llm')
+            provider: Model provider ('vsegpt' or 'openai')
+            model_name: Optional specific model name
+            collection: ChromaDB collection name
+            scorers: List of scorer specifications
+            temperature: Model temperature
+
+        Returns:
+            Configured evaluation components
+
+        Raises:
+            ValueError: If invalid retriever type or provider specified
+        """
+        try:
+            retriever_type = RetrieverType(retriever.lower())
+            provider = Provider(provider.lower())
+        except ValueError as e:
+            logger.error(f"Invalid parameter: {str(e)}")
+            raise
+
+        # Initialize components
+        llm = self.config.model_config.get_llm(provider, model_name, temperature)
+        embeddings = self.config.embedding_config.get_embeddings(provider)
+        storage = ChromaSlideStore(
+            collection_name=collection, embedding_model=embeddings
+        )
+
+        logger.info(f"Initialized storage collection: {collection}")
+
+        # Get scorer instances
+        scorer_instances = self._get_scorers(scorers)
+
+        # Configure retriever
+        retriever_instance = get_retriever(storage, retriever_type, llm)
+
+        return EvalComponents(
+            llm=llm,
+            storage=storage,
+            retriever=retriever_instance,
+            scorer_instances=scorer_instances,
+        )
+
     def mlflow(
         self,
         retriever: str = "basic",
@@ -65,49 +165,31 @@ class EvaluationCLI:
         model_name: Optional[str] = None,
         collection: str = "pres1",
         experiment: str = "PresRetrieve_eval",
+        scorers: List[str] = ["default"],
         n_questions: int = -1,
-        max_concurrent: int = 5,
+        max_concurrent: int = 8,
         rate_limit_timeout: float = -1,
         temperature: float = 0.2,
         spread_id: Optional[str] = None,
         sheet_id: Optional[str] = None,
     ) -> None:
-        """Run MLflow-based evaluation pipeline
-
-        Args:
-            retriever: Retriever type ('basic' or 'llm')
-            provider: Model provider ('vsegpt' or 'openai')
-            model_name: Optional specific model name
-            collection: ChromaDB collection name
-            experiment: MLflow experiment name
-            n_questions: Number of questions to evaluate (-1 for all)
-            max_concurrent: Maximum concurrent operations
-            temperature: Model temperature
-            sheet_id: Optional spreadsheet ID to override env variable
-        """
+        """Run MLflow-based evaluation pipeline"""
         try:
-            retriever_type = RetrieverType(retriever.lower())
-            provider = Provider(provider.lower())
-        except ValueError as e:
-            logger.error(f"Invalid parameter: {str(e)}")
-            return
-
-        try:
-            # Initialize LLM if needed for retriever
-            ## TODO Separate llms for eval and inference
-            llm = self.config.model_config.get_llm(provider, model_name, temperature)
-            embeddings = self.config.embedding_config.get_embeddings(provider)
-            storage = ChromaSlideStore(
-                collection_name=collection, embedding_model=embeddings
+            # Initialize components
+            components = self._initialize_components(
+                retriever=retriever,
+                provider=provider,
+                model_name=model_name,
+                collection=collection,
+                scorers=scorers,
+                temperature=temperature,
             )
-
-            logger.info(f"Initialized storage collection: {collection}")
 
             # Setup evaluation config
             db_path = self.config.navigator.eval_runs / "mlruns.db"
             artifacts_path = self.config.navigator.eval_artifacts
 
-            eval_config = EvaluationConfig(
+            eval_config = MlflowConfig(
                 experiment_name=experiment,
                 metrics=[
                     "presentationmatch",
@@ -117,12 +199,17 @@ class EvaluationCLI:
                     "presentationcount",
                     "llmrelevance",
                 ],
-                scorers=[MinScorer(), HyperbolicScorer()],
-                retriever=get_retriever(storage, retriever_type, llm),
+                scorers=components.scorer_instances,
+                retriever=components.retriever,
+                metric_args=dict(
+                    rate_limit_timeout=1.05 if provider == Provider.VSEGPT else -1.0
+                ),
             )
 
-            evaluator = RAGEvaluator(
-                config=eval_config, llm=llm, max_concurrent=max_concurrent
+            evaluator = RAGEvaluatorMlflow(
+                config=eval_config,
+                llm=components.llm,
+                max_concurrent=max_concurrent,
             )
 
             # Load and process questions
@@ -142,8 +229,6 @@ class EvaluationCLI:
             evaluator.run_evaluation(questions_df)
             logger.info("MLflow evaluation completed successfully")
 
-        except KeyboardInterrupt:
-            logger.warning("Evaluation interrupted by user")
         except Exception as e:
             logger.error("MLflow evaluation failed", exc_info=True)
             raise
@@ -156,63 +241,39 @@ class EvaluationCLI:
         collection: str = "pres1",
         dataset: str = "RAG_test",
         experiment_prefix: Optional[str] = None,
+        scorers: List[str] = ["default"],
         n_questions: int = -1,
-        max_concurrent: int = 2,
+        max_concurrent: int = 5,
         temperature: float = 0.2,
     ) -> None:
-        """Run LangSmith-based evaluation pipeline
-
-        Args:
-            retriever: Retriever type ('basic' or 'llm')
-            provider: Model provider ('vsegpt' or 'openai')
-            model_name: Optional specific model name
-            collection: ChromaDB collection name
-            dataset: LangSmith dataset name
-            experiment_prefix: Optional prefix for experiment names
-            n_questions: Number of questions to evaluate (-1 for all)
-            max_concurrent: Maximum concurrent operations
-            temperature: Model temperature
-        """
-        try:
-            retriever_type = RetrieverType(retriever.lower())
-            provider = Provider(provider.lower())
-        except ValueError as e:
-            logger.error(f"Invalid parameter: {str(e)}")
-            return
-
+        """Run LangSmith-based evaluation pipeline"""
         try:
             # Initialize components
-            llm = (
-                self.config.model_config.get_llm(provider, model_name, temperature)
-                if retriever_type == RetrieverType.LLM
-                else None
+            components = self._initialize_components(
+                retriever=retriever,
+                provider=provider,
+                model_name=model_name,
+                collection=collection,
+                scorers=scorers,
+                temperature=temperature,
             )
-            embeddings = self.config.embedding_config.get_embeddings(provider)
-            storage = ChromaSlideStore(
-                collection_name=collection, embedding_model=embeddings
-            )
-
-            logger.info(f"Initialized storage collection: {collection}")
 
             # Configure evaluation
-            retriever = get_retriever(storage, retriever_type, llm)
-            scorers = [MinScorer(), HyperbolicScorer()]
-
-            langsmith_config = LangSmithConfig(
+            langsmith_config = LangsmithConfig(
                 dataset_name=dataset,
                 experiment_prefix=experiment_prefix,
+                retriever=components.retriever,
+                scorers=components.scorer_instances,
                 max_concurrency=max_concurrent,
             )
 
-            evaluator = LangSmithEvaluator(
+            evaluator = RAGEvaluatorLangsmith(
                 config=langsmith_config,
-                retriever=retriever,
-                scorers=scorers,
-                llm=llm,
+                llm=components.llm,
             )
 
             # Load and process questions
-            sheet_id = os.get_env("BENCHMARK_SPREADSHEET_ID")
+            sheet_id = os.getenv("BENCHMARK_SPREADSHEET_ID")
             questions_df = evaluator.load_questions_from_sheet(sheet_id)
             logger.info(f"Loaded {len(questions_df)} questions")
 
@@ -223,8 +284,6 @@ class EvaluationCLI:
             evaluator.run_evaluation(questions_df)
             logger.info("LangSmith evaluation completed successfully")
 
-        except KeyboardInterrupt:
-            logger.warning("Evaluation interrupted by user")
         except Exception as e:
             logger.error("LangSmith evaluation failed", exc_info=True)
             raise
@@ -237,3 +296,54 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+EXAMPLES
+
+# Basic MLflow evaluation with default settings
+python -m src.run_evaluation mlflow
+
+# MLflow with specific scorer combinations
+python -m src.run_evaluation mlflow \
+    --scorers=[min,hyperbolic_k2.0_p3.0]
+
+# MLflow with preset scorer configurations
+python -m src.run_evaluation mlflow \
+    --scorers=[default,weighted]
+
+# MLflow with LLM-enhanced retrieval
+python -m src.run_evaluation mlflow \
+    --retriever=llm \
+    --scorers=[exponential_a0.7_w1.7_s2.8] \
+    --provider=openai \
+    --model-name=gpt-4 \
+    --temperature=0.1
+
+# MLflow with limited questions and custom experiment name
+python -m src.run_evaluation mlflow \
+    --n-questions=20 \
+    --experiment=custom_experiment \
+    --max-concurrent=3
+
+# MLflow with specific spreadsheet
+python -m src.run_evaluation mlflow \
+    --spread-id=your_spreadsheet_id \
+    --sheet-id=your_sheet_id
+
+# Basic LangSmith evaluation
+python -m src.run_evaluation langsmith
+
+# LangSmith with custom configuration
+python -m src.run_evaluation langsmith \
+    --retriever=llm \
+    --scorers=[default,exponential_a0.7_w1.7_s2.8] \
+    --dataset=custom_dataset \
+    --experiment-prefix=test_run \
+    --n-questions=10
+
+# LangSmith with VSE-GPT provider
+python -m src.run_evaluation langsmith \
+    --provider=vsegpt \
+    --model-name=custom_model \
+    --max-concurrent=2
+"""

@@ -44,8 +44,10 @@ class MetricResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class BaseMetric(ABC):
+class BaseMetric(BaseModel):
     """Base class for evaluation metrics"""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
     def name(self) -> str:
@@ -165,29 +167,45 @@ class LLMRelevance(BaseMetric):
     """LLM-based relevance scoring"""
 
     class RelevanceOutput(BaseModel):
-        explanation: str = Field(description="Explanation for the relevance score")
-        relevance_score: int = Field(description="Relevance score (0 or 1)")
+        explanation: str = Field(
+            description="Detailed explanation of why the content is/isn't relevant and how it relates to the query"
+        )
+        relevance_score: int = Field(description="Relevance score from 0-10")
 
         model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def __init__(
-        self, llm: ChatOpenAI, n_contexts: int = -1, rate_limit_timeout: float = -1
-    ):
-        self.n_contexts = n_contexts
-        self.rate_limit_timeout = rate_limit_timeout
+    llm: ChatOpenAI = Field(description="LLM for relevance scoring")
+    n_contexts: int = Field(default=-1, description="Number of contexts to evaluate")
+    rate_limit_timeout: float = Field(
+        default=-1.0, description="Rate limit timeout in seconds"
+    )
+
+    def model_post_init(self, __context: Any):
         prompt_template = PromptTemplate.from_template(
             """\
-You will act as an expert relevance assessor for a presentation retrieval system. Your task is to evaluate whether the retrieved slide descriptions contain relevant information for the user's query. Consider both textual content and references to visual elements (images, charts, graphs) as equally valid sources of information.
+You are an expert relevance assessor for a presentation retrieval system. Your task is to evaluate whether the retrieved slide descriptions contain relevant information that answers the user's query. Analyze all provided slide descriptions as a collective unit and provide a detailed explanation along with a relevance score.
+
+Each slide description contains these equally weighted sections:
+- Text Content: The actual text present on the slide
+- Visual Content: Description of images, charts, or other visual elements
+- Topic Overview: Main themes and subjects covered
+- Insights and Conclusions: Key takeaways and conclusions
+- Layout and Composition: Structural organization of the slide
+
+Scoring Guidelines:
+- 9-10: Perfect match - Content directly and comprehensively answers the query (e.g., query asks about sales trends, and slides show exact sales data and analysis)
+- 7-8: Strong relevance - Content clearly relates to the query but may miss minor details (e.g., query asks about complete workflow, slides show most but not all steps)
+- 5-6: Moderate relevance - Content addresses the query partially or indirectly (e.g., query asks about specific feature, slides discuss it briefly among other topics)
+- 3-4: Weak relevance - Content touches the topic but doesn't provide substantial answer (e.g., query asks about implementation details, slides only mention the concept)
+- 1-2: Minimal relevance - Only slight connection to the query (e.g., query asks about specific metric, slides only mention related general category)
+- 0: No relevance - Content has no connection to the query
 
 Evaluation Rules:
-- Assign score 1 if the descriptions contain ANY relevant information that helps answer the query
-- Assign score 0 only if the descriptions are completely unrelated or provide no useful information
-- Treat references to visual elements (e.g., "graph shows increasing trend" or "image depicts workflow") as valid information
-- Consider partial matches as relevant (score 1) as long as they provide some value in answering the query
-
-For each evaluation, you will receive:
-1. Retrieved slide descriptions
-2. The user's question
+1. Award points if ANY section (text, visual, etc.) contains relevant information
+2. In your explanation, cite specific sections and content that justify your score
+3. Treat all sections equally - a match in visual content is as valuable as a match in text content
+4. Consider all slides collectively - relevant information might be spread across multiple slides
+5. Partial matches are valuable if they provide any useful information related to the query
 
 # Slide Descriptions
 {context_str}
@@ -202,7 +220,9 @@ Output formatting:
         )
 
         self._parser = JsonOutputParser(pydantic_object=self.RelevanceOutput)
-        self.chain = prompt_template | llm.with_structured_output(self.RelevanceOutput)
+        self._chain = prompt_template | self.llm.with_structured_output(
+            self.RelevanceOutput
+        )
 
     async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         """Evaluate relevance of retrieved content"""
@@ -218,7 +238,7 @@ Output formatting:
         )
         pres_context = "\n\n---\n\n".join(contexts_used)
 
-        llm_out = await self.chain.ainvoke(
+        llm_out = await self._chain.ainvoke(
             dict(
                 query_str=question,
                 context_str=pres_context,
@@ -255,7 +275,7 @@ class MetricsRegistry:
         return metric_cls(**kwargs)
 
 
-class EvaluationConfig(BaseModel):
+class MlflowConfig(BaseModel):
     """Configuration for RAG evaluation"""
 
     experiment_name: str = "RAG_test"
@@ -269,6 +289,7 @@ class EvaluationConfig(BaseModel):
 
     write_to_google: bool = False
 
+    metric_args: Dict[str, Any] = {}
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def get_retriever_with_scorer(self, scorer: ScorerTypes) -> PresentationRetriever:
@@ -276,12 +297,12 @@ class EvaluationConfig(BaseModel):
         return self.retriever
 
 
-class RAGEvaluator:
+class RAGEvaluatorMlflow:
     """MLFlow-based evaluator for RAG pipeline"""
 
     def __init__(
         self,
-        config: EvaluationConfig,
+        config: MlflowConfig,
         llm: Optional[ChatOpenAI] = None,
         max_concurrent: int = 5,
     ):
@@ -554,7 +575,7 @@ def main():
 
     db_path = project_config.navigator.eval_runs / "mlruns.db"
     artifacts_path = project_config.navigator.eval_artifacts
-    eval_config = EvaluationConfig(
+    eval_config = MlflowConfig(
         experiment_name="PresRetrieve_speed_eval",
         metrics=["presentationmatch", "pagematch"],
         scorers=[MinScorer(), HyperbolicScorer()],
@@ -563,7 +584,7 @@ def main():
     )
     logger.info("Created evaluation config")
 
-    evaluator = RAGEvaluator(storage=storage, config=eval_config, llm=llm)
+    evaluator = RAGEvaluatorMlflow(storage=storage, config=eval_config, llm=llm)
     logger.info("Initialized evaluator")
 
     # Load questions

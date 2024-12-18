@@ -97,6 +97,29 @@ poetry run python -m src.webapp.app --collection pres1 --host 0.0.0.0 --port 786
 ```
 
 ### Бенчмарк
+#### MLFlow
+Запустите MLFlow для отображения результатов:
+
+```sh
+poetry run mlflow ui --backend-store-uri sqlite:///data/processed/eval/runs/mlruns.db
+```
+
+Запустите тестирование:
+```sh
+poetry run python -m src.run_evaluation mlflow \
+    --retriever="basic" \
+    --provider="vsegpt" \
+    --scorers=[min] \
+    --max_concurrent=5 \
+    --model_name="openai/gpt-4o-mini" \
+    --collection="pres_45" \
+    --experiment="PresRetrieve_45" \
+    --n_questions=-1 \
+    --temperature=0.2 \
+    --sheet_id="1219206941"
+```
+
+#### Langsmith
 **Здесь будет гайд как запустить бенчмаркинг**
 
 

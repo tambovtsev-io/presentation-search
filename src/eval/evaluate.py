@@ -206,7 +206,7 @@ def create_ragas_evaluator(metric):
     return evaluate
 
 
-class EvaluationConfig(BaseModel):
+class LangsmithConfig(BaseModel):
     """Configuration for RAG evaluation"""
 
     dataset_name: str = "RAG_test"
@@ -244,7 +244,7 @@ class RAGEvaluatorLangsmith:
 
     def __init__(
         self,
-        config: EvaluationConfig,
+        config: LangsmithConfig,
         llm: ChatOpenAI = Config().model_config.load_vsegpt(model="openai/gpt-4o-mini"),
     ):
         # Enable LangSmith tracing
@@ -378,7 +378,7 @@ def main():
 
     # Initialize components
     storage = ChromaSlideStore(collection_name="pres0", embedding_model=embeddings)
-    eval_config = EvaluationConfig(
+    eval_config = LangsmithConfig(
         dataset_name="PresRetrieve_5",
         retriever_cls=LLMPresentationRetriever,
         evaluators=[
