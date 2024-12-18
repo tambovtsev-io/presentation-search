@@ -15,38 +15,6 @@ from src.config.logging import setup_logging
 logger = logging.getLogger(__name__)
 
 
-def get_llm(
-    provider: Provider, model_name: Optional[str] = None, temperature: float = 0.2
-) -> Any:
-    """Get LLM based on type and name
-
-    Args:
-        model_type: Type of model to use (vsegpt or openai)
-        model_name: Optional model name (e.g. "gpt-4-vision-preview")
-
-    Returns:
-        Configured LLM instance
-    """
-    config = Config()
-
-    if provider == Provider.VSEGPT:
-        model_name = model_name or "vis-openai/gpt-4o-mini"
-        logger.info(f"Using VSEGPT model: {model_name}")
-        return config.model_config.load_vsegpt(
-            model=model_name, temperature=temperature
-        )
-
-    elif provider == Provider.OPENAI:
-        model_name = model_name or "gpt-4o-mini"
-        logger.info(f"Using OpenAI model: {model_name}")
-        return config.model_config.load_openai(
-            model=model_name, temperature=temperature
-        )
-
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
-
-
 async def process_presentation(
     pdf_paths: List[Union[str, Path]],
     provider: Provider = Provider.VSEGPT,
@@ -76,7 +44,7 @@ async def process_presentation(
     logger.debug("Initializing presentation processing pipeline")
 
     # Initialize LLM
-    llm = get_llm(provider, model_name, temperature=temperature)
+    llm = Config().model_config.get_llm(provider, model_name, temperature=temperature)
 
     if vision_prompt is None:
         vision_prompt = JsonH1AndGDPrompt()
