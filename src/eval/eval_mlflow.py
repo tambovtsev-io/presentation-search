@@ -663,5 +663,6 @@ class RAGEvaluatorMlflow:
                     if values:
                         mean_value = sum(values) / len(values)
                         mlflow.log_metric(f"mean_{name}", mean_value)
+                        mlflow.log_metric(f"n_questions", len(questions_df))
                         mlflow.log_metric(f"error_rate", n_errors / len(questions_df))
                         self._logger.info(f"Mean {name}: {mean_value:.3f}")
