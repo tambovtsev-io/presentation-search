@@ -18,6 +18,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 from tqdm import tqdm
+from tqdm.asyncio import tqdm_asyncio
 
 from src.config import Config, load_spreadsheet
 from src.config.logging import setup_logging
@@ -523,6 +524,7 @@ class RAGEvaluatorMlflow:
         # Create semaphore within the async context
         semaphore = asyncio.Semaphore(self._max_concurrent)
 
+        # Create tasks for all questions
         tasks = [
             self.process_question(
                 retriever=retriever,
@@ -536,12 +538,13 @@ class RAGEvaluatorMlflow:
             for idx, (_, row) in enumerate(questions_df.iterrows())
         ]
 
-        for completed in tqdm(
-            asyncio.as_completed(tasks),
-            desc=f"Processing questions (max {self._max_concurrent} concurrent)",
-            total=len(tasks),
-        ):
-            await completed
+        # Wait for all tasks to complete
+        await tqdm_asyncio.gather(
+            *tasks,
+            desc=f"Processing questions for '{retriever.scorer.id[:15]}' (max {self._max_concurrent} concurrent)",
+            total=len(questions_df),
+            dynamic_ncols=True,  # Adjust width automatically
+        )
 
     def run_evaluation(self, questions_df: pd.DataFrame) -> None:
         """Run evaluation with async LLM queries and controlled concurrency"""
@@ -585,6 +588,13 @@ class RAGEvaluatorMlflow:
                     )
                 )
 
+                # Calculate n_errors
+                n_errors = (
+                    len(questions_df) - len(results_log)
+                    if results_log
+                    else len(questions_df)
+                )
+
                 # Process results
                 results_df = pd.DataFrame(results_log)
                 results_df["experiment_name"] = (
@@ -615,7 +625,5 @@ class RAGEvaluatorMlflow:
                     if values:
                         mean_value = sum(values) / len(values)
                         mlflow.log_metric(f"mean_{name}", mean_value)
+                        mlflow.log_metric(f"error_rate", n_errors / len(questions_df))
                         self._logger.info(f"Mean {name}: {mean_value:.3f}")
-
-
-

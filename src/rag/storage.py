@@ -445,7 +445,7 @@ class ChromaSlideStore:
         """Get embeddings for texts"""
         return self._embeddings.embed_documents(texts)
 
-    def query_storage(
+    async def aquery_storage(
         self,
         query: str,
         n_results: int = 10,
@@ -462,13 +462,26 @@ class ChromaSlideStore:
             List of ScoredChunks sorted by similarity
         """
         # Get query embedding
-        query_embedding = self._embeddings.embed_query(query)
+        query_embedding = await self._embeddings.aembed_query(query)
 
         # Query ChromaDB
         result = self._collection.query(
             query_embeddings=[query_embedding], n_results=n_results, where=where
         )
+
+        ## Run ChromaDB query in executor to avoid blocking
+        # result = await asyncio.get_event_loop().run_in_executor(
+        #     None,
+        #     lambda: self._collection.query(
+        #         query_embeddings=[query_embedding],
+        #         n_results=n_results,
+        #         where=where
+        #     )
+        # )
         return result
+
+    def query_storage(self, *args, **kwargs):
+        return asyncio.run(self.aquery_storage(*args, **kwargs))
 
     def _process_chroma_results(self, results: QueryResult) -> List[ScoredChunk]:
         """Convert ChromaDB results to list of (Document, score) tuples
@@ -490,7 +503,7 @@ class ChromaSlideStore:
 
         return sorted(scored_chunks, key=lambda chunk: chunk.score)
 
-    def search_query(
+    async def asearch_query(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -545,7 +558,10 @@ class ChromaSlideStore:
             ),
         )
 
-    def search_query_pages(
+    def search_query(self, *args, **kwargs):
+        return asyncio.run(self.asearch_query(*args, **kwargs))
+
+    async def asearch_query_pages(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -566,7 +582,7 @@ class ChromaSlideStore:
             List of search results with full slide context, deduplicated by slide_id
         """
         # First perform regular search
-        search_results = self.search_query(
+        search_results = await self.asearch_query(
             query=query,
             chunk_types=chunk_types,
             n_results=n_results,  # * 3,  # Get more to ensure different pages
@@ -621,7 +637,10 @@ class ChromaSlideStore:
 
         return page_results  # [:n_results]
 
-    def search_query_presentations(
+    def search_query_pages(self, *args, **kwargs):
+        return asyncio.run(self.asearch_query_pages(*args, **kwargs))
+
+    async def asearch_query_presentations(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -644,7 +663,7 @@ class ChromaSlideStore:
             List of presentations with their matching slides, sorted by best match
         """
         # Get initial search results with enough buffer for filtering
-        search_results = self.search_query_pages(
+        search_results = await self.asearch_query_pages(
             query=query,
             chunk_types=chunk_types,
             n_results=n_results,
@@ -688,6 +707,9 @@ class ChromaSlideStore:
             #     break
 
         return ScoredPresentations(presentations=presentation_results, scorer=scorer)
+
+    def search_query_presentations(self, *args, **kwargs):
+        return asyncio.run(self.asearch_query_presentations(*args, **kwargs))
 
     def get_by_metadata(
         self, metadata_filter: Dict, n_results: Optional[int] = None
