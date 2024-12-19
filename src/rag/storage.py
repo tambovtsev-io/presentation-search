@@ -1122,6 +1122,7 @@ Output Formatting:
 
         return dict(contexts=reranked)
 
+RetrieverTypes = Union[PresentationRetriever, LLMPresentationRetriever]
 
 # def create_slides_database(
 #     presentations: List[PresentationAnalysis], collection_name: str = "slides"

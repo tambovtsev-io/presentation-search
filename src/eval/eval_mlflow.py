@@ -21,7 +21,10 @@ from tqdm import tqdm
 
 from src.config import Config, load_spreadsheet
 from src.config.logging import setup_logging
-from src.config.spreadsheets import GoogleSpreadsheetManager
+from src.config.spreadsheets import (
+    GoogleSpreadsheetManager,
+    GoogleSpreadsheetManagerMLFlow,
+)
 from src.rag import (
     ChromaSlideStore,
     HyperbolicScorer,
@@ -29,7 +32,7 @@ from src.rag import (
     PresentationRetriever,
     ScorerTypes,
 )
-from src.rag.storage import LLMPresentationRetriever
+from src.rag.storage import LLMPresentationRetriever, RetrieverTypes
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +278,54 @@ class MetricsRegistry:
         return metric_cls(**kwargs)
 
 
+class MetricPresets:
+    """Available metric combinations for evaluation"""
+
+    BASIC = [
+        "presentationmatch",
+        "presentationfound",
+        "pagematch",
+        "pagefound",
+        "presentationcount",
+    ]
+
+    LLM = ["llmrelevance"]
+
+    FULL = BASIC + LLM
+
+    @classmethod
+    def get_preset(cls, name: str) -> List[str]:
+        """Get metric names from preset"""
+        try:
+            return getattr(cls, name.upper())
+        except AttributeError:
+            raise ValueError(f"Unknown preset name: {name}")
+
+    @classmethod
+    def parse_specs(cls, specs: List[str]) -> List[str]:
+        """Parse metric specifications
+
+        Args:
+            specs: List of metric specifications. Each item can be:
+                - Preset name: "basic", "llm", "full"
+                - Metric name: "presentationmatch", "llmrelevance", etc
+
+        Returns:
+            List of metric names with duplicates removed
+        """
+        metrics = []
+        for spec in specs:
+            # Check if spec is a preset name
+            if hasattr(cls, spec.upper()):
+                metrics.extend(cls.get_preset(spec))
+            else:
+                metrics.append(spec.lower())
+
+        # Remove duplicates while preserving order
+        seen = set()
+        return [m for m in metrics if not (m in seen or seen.add(m))]  # type: ignore
+
+
 class MlflowConfig(BaseModel):
     """Configuration for RAG evaluation"""
 
@@ -295,6 +346,12 @@ class MlflowConfig(BaseModel):
     def get_retriever_with_scorer(self, scorer: ScorerTypes) -> PresentationRetriever:
         self.retriever.set_scorer(scorer)
         return self.retriever
+
+    def model_post_init(self, __context: Any) -> None:
+        """Process metric specifications after initialization"""
+        self.metrics = MetricPresets.parse_specs(self.metrics)
+        logger.info(f"Using metrics: {self.metrics}")
+        return super().model_post_init(__context)
 
 
 class RAGEvaluatorMlflow:
@@ -319,7 +376,7 @@ class RAGEvaluatorMlflow:
         # Setup GoogleSheets
         eval_spreadsheet_id = os.getenv("EVAL_SPREADSHEET_ID")
         if eval_spreadsheet_id is not None:
-            self.gsheets = GoogleSpreadsheetManager(eval_spreadsheet_id)
+            self.gsheets = GoogleSpreadsheetManagerMLFlow(eval_spreadsheet_id)
         else:
             raise FileNotFoundError("no eval_spreadsheet_id in .env")
 
@@ -395,7 +452,7 @@ class RAGEvaluatorMlflow:
 
     async def process_question(
         self,
-        retriever: LLMPresentationRetriever,
+        retriever: RetrieverTypes,
         row: pd.Series,
         metric_values: Dict[str, List[float]],
         results_log: List[Dict],
@@ -413,7 +470,7 @@ class RAGEvaluatorMlflow:
             ground_truth = {
                 "question": row["question"],
                 "pres_name": row["pres_name"],
-                "pages": [int(x) if x else -1 for x in row["page"].split(",")],
+                "pages": [int(x) for x in row["page"].split(",") if x],
             }
 
             try:
@@ -457,7 +514,7 @@ class RAGEvaluatorMlflow:
 
     async def process_questions_batch(
         self,
-        retriever: LLMPresentationRetriever,
+        retriever: RetrieverTypes,
         questions_df: pd.DataFrame,
         metric_values: Dict[str, List[float]],
         results_log: List[Dict],
@@ -503,6 +560,7 @@ class RAGEvaluatorMlflow:
                 self.config.experiment_name,
                 artifact_location=self.config.artifacts_uri,
             )
+            experiment = mlflow.get_experiment_by_name(self.config.experiment_name)
             self._logger.info(f"Created new experiment: {self.config.experiment_name}")
 
         mlflow.set_experiment(experiment_id=experiment_id)
@@ -529,6 +587,9 @@ class RAGEvaluatorMlflow:
 
                 # Process results
                 results_df = pd.DataFrame(results_log)
+                results_df["experiment_name"] = (
+                    experiment.name if experiment is not None else "no_name"
+                )
                 results_df["experiment_id"] = experiment_id
                 results_df["scorer"] = scorer.id
                 results_df["retriever"] = retriever.id
@@ -543,7 +604,11 @@ class RAGEvaluatorMlflow:
 
                 # Write to google sheets if enabled
                 if self.config.write_to_google:
-                    self.write_to_google_sheet(results_df)
+                    self.gsheets.write_evaluation_results(
+                        results_df=results_df,
+                        metric_values=metric_values,
+                        experiment_name=self.config.experiment_name,
+                    )
 
                 # Log metrics
                 for name, values in metric_values.items():
@@ -553,57 +618,4 @@ class RAGEvaluatorMlflow:
                         self._logger.info(f"Mean {name}: {mean_value:.3f}")
 
 
-def main():
-    from dotenv import load_dotenv
 
-    # Load environment
-    load_dotenv()
-    logger.info("Starting RAG evaluation pipeline")
-
-    # Mlflow setup logging
-    setup_logging(logger)
-    mlflow.langchain.autolog()
-
-    # Setup components
-    project_config = Config()
-    llm = project_config.model_config.load_vsegpt(model="openai/gpt-4o-mini")
-    embeddings = project_config.embedding_config.load_vsegpt()
-    logger.info("Initialized LLM and embeddings models")
-
-    storage = ChromaSlideStore(collection_name="pres1", embedding_model=embeddings)
-    logger.info("Initialized ChromaDB storage")
-
-    db_path = project_config.navigator.eval_runs / "mlruns.db"
-    artifacts_path = project_config.navigator.eval_artifacts
-    eval_config = MlflowConfig(
-        experiment_name="PresRetrieve_speed_eval",
-        metrics=["presentationmatch", "pagematch"],
-        scorers=[MinScorer(), HyperbolicScorer()],
-        tracking_uri=f"sqlite:////{db_path}",
-        artifacts_uri=f"file:////{artifacts_path}",
-    )
-    logger.info("Created evaluation config")
-
-    evaluator = RAGEvaluatorMlflow(storage=storage, config=eval_config, llm=llm)
-    logger.info("Initialized evaluator")
-
-    # Load questions
-    sheet_id = os.environ["BENCHMARK_SPREADSHEET_ID"]
-    questions_df = evaluator.load_questions_from_sheet(sheet_id)
-    logger.info(f"Loaded {len(questions_df)} questions from spreadsheet")
-
-    questions_df = questions_df.sample(5).reset_index()
-    logger.info(f"Selected {len(questions_df)} random questions for evaluation")
-    evaluator.run_evaluation(questions_df)
-
-    # Run evaluation
-    try:
-        evaluator.run_evaluation(questions_df)
-        logger.info("Evaluation completed successfully")
-    except Exception as e:
-        logger.exception("Evaluation failed")
-        raise
-
-
-if __name__ == "__main__":
-    main()

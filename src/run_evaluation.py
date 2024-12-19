@@ -98,9 +98,7 @@ class EvaluationCLI:
             logger.warning("No valid scorers specified, using default")
             scorer_instances = [ScorerFactory.create_default()]
         else:
-            logger.info(
-                f"Using scorers: {[type(s).__name__ for s in scorer_instances]}"
-            )
+            logger.info(f"Using scorers: {[s.id for s in scorer_instances]}")
 
         return scorer_instances
 
@@ -166,14 +164,85 @@ class EvaluationCLI:
         collection: str = "pres1",
         experiment: str = "PresRetrieve_eval",
         scorers: List[str] = ["default"],
+        metrics: List[str] = ["basic"],
         n_questions: int = -1,
         max_concurrent: int = 8,
         rate_limit_timeout: float = -1,
         temperature: float = 0.2,
         spread_id: Optional[str] = None,
         sheet_id: Optional[str] = None,
+        write_to_google: bool = False,
     ) -> None:
-        """Run MLflow-based evaluation pipeline"""
+        """Run evaluation pipeline with MLflow tracking.
+
+        Options:
+            retriever: Type of retriever to use
+                Options: 'basic' (vector similarity) or 'llm' (LLM-enhanced)
+                Default: 'basic'
+
+            provider: Model provider to use
+                Options: 'vsegpt' or 'openai'
+                Default: 'vsegpt'
+
+            model_name: Specific model name to use (provider-dependent)
+                Default: None (uses provider's default model)
+
+            collection: ChromaDB collection name for document storage
+                Default: 'pres1'
+
+            experiment: MLflow experiment name
+                Default: 'PresRetrieve_eval'
+
+            scorers: List of scorer specifications
+                Options:
+                    - Presets: 'default', 'all', 'weightedall', 'hyperbolic', 'exponential', 'step', 'linear'
+                    - Individual: 'min', 'hyperbolic_k2.0_p3.0'
+                Default: ['default']
+
+            metrics: List of metric specifications
+                Options:
+                    - Presets: 'basic', 'llm', 'full'
+                    - Individual:  'presentationmatch', 'presentationfound', 'pagematch', 'pagefound', 'presentationcount',
+                Default: ['basic']
+
+            n_questions: Number of random questions to evaluate
+                Use -1 for all questions
+                Default: -1
+
+            max_concurrent: Maximum number of concurrent evaluations
+                Default: 8
+
+            rate_limit_timeout: Rate limit delay between API calls
+                Use -1 to disable
+                Default: -1
+
+            temperature: Model temperature for LLM calls
+                Default: 0.2
+
+            spread_id: Google Spreadsheet ID for questions
+                Default: None (uses BENCHMARK_SPREADSHEET_ID env var)
+
+            sheet_id: Sheet ID within the spreadsheet
+                Default: None (uses first sheet)
+
+            write_to_google: Whether to write results to Google Sheets
+                Default: False
+
+        Examples:
+            # Basic evaluation with default settings
+            python -m src.run_evaluation mlflow
+
+            # LLM-enhanced retrieval with custom model
+            python -m src.run_evaluation mlflow --retriever=llm --provider=openai --model-name=gpt-4
+
+            # Custom evaluation with specific metrics
+            python -m src.run_evaluation mlflow --metrics=[basic,llmrelevance] --n-questions=20
+
+        Environment Variables:
+            BENCHMARK_SPREADSHEET_ID: Default spreadsheet ID if spread_id not provided
+            OPENAI_API_KEY: Required for OpenAI provider
+            VSEGPT_API_KEY: Required for VSE-GPT provider
+        """
         try:
             # Initialize components
             components = self._initialize_components(
@@ -191,19 +260,17 @@ class EvaluationCLI:
 
             eval_config = MlflowConfig(
                 experiment_name=experiment,
-                metrics=[
-                    "presentationmatch",
-                    "pagematch",
-                    "presentationfound",
-                    "pagefound",
-                    "presentationcount",
-                    "llmrelevance",
-                ],
+                metrics=metrics,
                 scorers=components.scorer_instances,
                 retriever=components.retriever,
                 metric_args=dict(
-                    rate_limit_timeout=1.05 if provider == Provider.VSEGPT else -1.0
+                    rate_limit_timeout=(
+                        rate_limit_timeout or 1.05
+                        if provider == Provider.VSEGPT
+                        else -1.0
+                    )
                 ),
+                write_to_google=write_to_google,
             )
 
             evaluator = RAGEvaluatorMlflow(
@@ -297,8 +364,11 @@ def main():
 if __name__ == "__main__":
     main()
 
+
 """
 EXAMPLES
+
+
 
 # Basic MLflow evaluation with default settings
 python -m src.run_evaluation mlflow
@@ -329,6 +399,22 @@ python -m src.run_evaluation mlflow \
 python -m src.run_evaluation mlflow \
     --spread-id=your_spreadsheet_id \
     --sheet-id=your_sheet_id
+
+# My extended command
+poetry run python -m src.run_evaluation mlflow \
+          --retriever="basic" \
+          --provider="vsegpt" \
+          --scorers=["min", "exponential"] \
+          --metrics=[basic] \
+          --max_concurrent=5 \
+          --model_name="openai/gpt-4o-mini" \
+          --collection="pres_45" \
+          --experiment="PresRetrieve_45" \
+          --n_questions=3 \
+          --temperature=0.2 \
+          --sheet_id="1636334554" \
+          --write_to_google=true
+
 
 # Basic LangSmith evaluation
 python -m src.run_evaluation langsmith
