@@ -15,18 +15,43 @@ logger = logging.getLogger(__name__)
 
 
 def load_spreadsheet(
-    sheet_id: Optional[str] = None, gid: Optional[str] = None
+    sheet_id: Optional[str] = None,
+    gid: Optional[Union[str, int]] = None
 ) -> pd.DataFrame:
+    """Load data from Google Spreadsheet.
+
+    Args:
+        sheet_id: Spreadsheet ID. If None, loads from BENCHMARK_SPREADSHEET_ID env var
+        gid: Sheet identifier. Can be either:
+            - Sheet ID (numeric)
+            - Sheet name (string)
+            If None, loads the first sheet
+
+    Returns:
+        DataFrame with loaded data
+    """
     if sheet_id is None:
         load_dotenv()
         sheet_id = os.environ.get("BENCHMARK_SPREADSHEET_ID")
+        if not sheet_id:
+            raise ValueError("No spreadsheet ID provided")
 
-    csv_load_url = (
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-    )
-    if gid is not None:
-        csv_load_url = f"{csv_load_url}&gid={gid}"
-    df = pd.read_csv(csv_load_url)
+    logger.info(f"Loading questions from spreadsheet ({sheet_id[:15]}...)/{gid}")
+    # Check if gid is numeric (sheet ID) or string (sheet name)
+    if gid is None or str(gid).isdigit():
+        # Use CSV export URL for numeric gid
+        csv_load_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+        if gid is not None:
+            csv_load_url = f"{csv_load_url}&gid={gid}"
+        df = pd.read_csv(csv_load_url)
+    else:
+        # Load by sheet name using gspread_pandas
+        google_config_dir = Config().navigator.root
+        google_config = get_config(google_config_dir, "google_config.json")
+        client = Client(config=google_config)
+        spread = Spread(sheet_id, client=client)
+        df = spread.sheet_to_df(sheet=str(gid), index=False)
+
     return df
 
 
