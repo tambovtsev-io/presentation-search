@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional, Set
 
+from dotenv import load_dotenv
 import nltk
 from nltk.corpus import stopwords
 
@@ -42,10 +43,13 @@ class RegexQueryPreprocessor:
         self._patterns = {
             "presentation_patterns": [
                 self.QueryPattern(
-                    r"^в какой презентации (?:был[аи]?|рассматривали?|говорили?|обсуждали?|показывали?|рассказывали?) ",
+                    r"^в какой презентации (?:был[аи]?|рассматривали?|говорили?|обсуждали?|показывали?|рассказывали?|перечисляли?) ",
                 ),
                 self.QueryPattern(
-                    r"^в презентации (?:был[аио]?|рассматривали?|говорили?|обсуждали?|показывали?|сравнивали?) ",
+                    r"^в презентации (?:был[аио]?|рассматривал?|говорил?|обсуждал?|показывал?|сравнивал?)(?:и?|ась|ось|а) ",
+                ),
+                self.QueryPattern(
+                    r"^презентация (?:про|с|в которой|где|со?) ",
                 ),
                 self.QueryPattern(
                     r"^презентация (?:про|с|в которой|где|со?) ",
@@ -126,11 +130,13 @@ if __name__ == "__main__":
 
     import fire
 
+    load_dotenv()
+
     class CLI:
         """Command line interface for QueryPreprocessor."""
 
         def __init__(self):
-            self.preprocessor = QueryPreprocessor()
+            self.preprocessor = RegexQueryPreprocessor()
 
         def clean(self, *queries: str, remove_stopwords: bool = True) -> None:
             """
