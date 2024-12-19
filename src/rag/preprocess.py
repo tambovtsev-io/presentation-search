@@ -6,7 +6,7 @@ import nltk
 from nltk.corpus import stopwords
 
 
-class QueryPreprocessor:
+class RegexQueryPreprocessor:
     """Preprocesses search queries by removing common patterns and standardizing format."""
 
     @dataclass
@@ -75,6 +75,10 @@ class QueryPreprocessor:
             self._compiled_patterns[category] = [
                 re.compile(p.pattern, re.IGNORECASE) for p in patterns
             ]
+
+    @property
+    def id(self):
+        return self.__class__.__name__
 
     def remove_stopwords_from_text(self, text: str) -> str:
         """Remove stopwords while preserving protected terms."""

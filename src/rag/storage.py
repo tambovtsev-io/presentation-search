@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 from uuid import uuid4
 
 import chromadb
 import numpy as np
+import pandas as pd
 from chromadb.api.types import QueryResult
 from chromadb.config import Settings
 from datasets.utils import metadata
@@ -27,7 +28,7 @@ from src.chains.prompts import JsonH1AndGDPrompt
 from src.config.model_setup import EmbeddingConfig
 from src.config.navigator import Navigator
 from src.rag import BaseScorer, HyperbolicScorer, ScorerTypes
-from src.rag.preprocess import QueryPreprocessor
+from src.rag.preprocess import RegexQueryPreprocessor
 from src.rag.score import ExponentialScorer, MinScorer
 
 logger = logging.getLogger(__name__)
@@ -376,6 +377,7 @@ class ChromaSlideStore:
         self,
         collection_name: str = "pres1",
         embedding_model: Embeddings = EmbeddingConfig().load_openai(),
+        query_preprocessor: Optional[RegexQueryPreprocessor] = RegexQueryPreprocessor(),
     ):
         """Initialize ChromaDB storage"""
         self.navigator = Navigator()
@@ -396,6 +398,9 @@ class ChromaSlideStore:
         # Initialize OpenAI embeddings
         # self._api_key = os.getenv("OPENAI_API_KEY")
         self._embeddings = embedding_model
+
+        # Initialize query preprocessor
+        self.query_preprocessor = query_preprocessor
 
         # Initialize indexer
         self._indexer = SlideIndexer(collection_name=collection_name)
@@ -461,8 +466,10 @@ class ChromaSlideStore:
         Returns:
             List of ScoredChunks sorted by similarity
         """
+        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
+
         # Get query embedding
-        query_embedding = await self._embeddings.aembed_query(query)
+        query_embedding = await self._embeddings.aembed_query(q_storage)
 
         # Query ChromaDB
         result = self._collection.query(
@@ -798,6 +805,139 @@ class ChromaSlideStore:
         await gather(*tasks)
         logger.info(f"Completed processing presentation: '{presentation.name}'")
 
+    def validate_presentations(self) -> Tuple[pd.DataFrame, List[str]]:
+        """Validate that all presentation slides were properly stored.
+
+        Uses metadata from stored chunks to compare number of pages in presentations.
+        Result shows how many pages are in ChromaDB vs expected total pages.
+
+        Returns:
+            Tuple containing:
+            - DataFrame with presentations statistics:
+                Columns:
+                - presentation: Presentation name
+                - stored_pages: Number of pages found in ChromaDB
+                - chunks_per_page: Average chunks per page
+                - total_chunks: Total chunks for this presentation
+                - chunk_types: Set of unique chunk types
+                - min_page: First page number
+                - max_page: Last page number
+            - List of validation warnings if any inconsistencies found
+        """
+        # Get all stored chunks
+        all_chunks = self._collection.get()
+
+        # Group chunks by presentation
+        pres_pages: Dict[str, Set[int]] = defaultdict(set)  # Unique pages
+        pres_chunks: Dict[str, int] = defaultdict(int)  # Total chunks
+        pres_types: Dict[str, Set[str]] = defaultdict(set)  # Chunk types
+
+        # Process each chunk's metadata
+        for metadata in all_chunks["metadatas"]:
+            if not metadata:
+                continue
+
+            pdf_path = metadata.get("pdf_path", "")
+            if not pdf_path:
+                continue
+
+            # Extract presentation name from path
+            pres_name = Path(pdf_path).stem
+
+            # Track pages, chunks and types
+            page_num = int(metadata.get("page_num", -1))
+            if page_num >= 0:
+                pres_pages[pres_name].add(page_num)
+
+            chunk_type = metadata.get("chunk_type", "unknown")
+            pres_types[pres_name].add(chunk_type)
+
+            pres_chunks[pres_name] += 1
+
+        # Compile statistics and warnings
+        stats_data = []
+        warnings = []
+
+        for pres_name in pres_pages:
+            stored_pages = len(pres_pages[pres_name])
+            total_chunks = pres_chunks[pres_name]
+            chunks_per_page = total_chunks / stored_pages if stored_pages > 0 else 0
+            chunk_types = pres_types[pres_name]
+            pages = sorted(pres_pages[pres_name])
+
+            stats_data.append(
+                {
+                    "presentation": pres_name,
+                    "stored_pages": stored_pages,
+                    "chunks_per_page": round(chunks_per_page, 2),
+                    "total_chunks": total_chunks,
+                    "chunk_types": chunk_types,
+                    "min_page": min(pages) if pages else None,
+                    "max_page": max(pages) if pages else None,
+                }
+            )
+
+            # Check for potential issues
+            if (
+                chunks_per_page < 3
+            ):  # Assuming we should have at least 3 chunks per page
+                warnings.append(
+                    f"Low chunks per page ({chunks_per_page:.1f}) " f"for '{pres_name}'"
+                )
+
+            # Check for page number gaps
+            if pages:
+                expected_pages = set(range(min(pages), max(pages) + 1))
+                missing_pages = expected_pages - pres_pages[pres_name]
+                if missing_pages:
+                    warnings.append(
+                        f"Missing pages {sorted(missing_pages)} in '{pres_name}'"
+                    )
+
+            # Check for missing chunk types
+            expected_types = {
+                "text_content",
+                "visual_content",
+                "topic_overview",
+                "conclusions_and_insights",
+                "layout_and_composition",
+            }
+            missing_types = expected_types - chunk_types
+            if missing_types:
+                warnings.append(f"Missing chunk types {missing_types} in '{pres_name}'")
+
+        # Create DataFrame from stats
+        stats_df = pd.DataFrame(stats_data).sort_values("presentation")
+
+        return stats_df, warnings
+
+    def validate_storage(self) -> Tuple[pd.DataFrame, List[str]]:
+        """Helper function to run validation and display results.
+
+        Args:
+            store: ChromaSlideStore instance to validate
+
+        Returns:
+            Tuple of (statistics DataFrame, list of warnings)
+        """
+        from IPython.display import display
+
+        stats_df, warnings = self.validate_presentations()
+
+        # Display statistics
+        print("\nPresentation Statistics:")
+        display(stats_df)
+
+        # Display warnings if any
+        if warnings:
+            print("\nWarnings:")
+            for warning in warnings:
+                print(f"- {warning}")
+        else:
+            print("\nNo validation warnings found.")
+
+        return stats_df, warnings
+
 
 class PresentationRetriever(BaseModel):
     """Retriever for slide search that provides formatted context"""
@@ -806,15 +946,17 @@ class PresentationRetriever(BaseModel):
     scorer: BaseScorer = ExponentialScorer()
     n_contexts: int = -1
     n_pages: int = -1
+    n_query_results: int = 70
     retrieve_page_contexts: bool = True
-
-    query_preprocessor: Optional[QueryPreprocessor] = QueryPreprocessor()
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
     def id(self) -> str:
         return self.__class__.__name__.lower()
+
+    def set_n_query_results(self, n_query_results: int):
+        self.n_query_results = n_query_results
 
     def format_slide(
         self, slide: SearchResultPage, metadata: Optional[Dict[str, Any]] = None
@@ -883,10 +1025,9 @@ class PresentationRetriever(BaseModel):
         Returns:
             Dictionary with presentation results and formatted context
         """
-        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
 
         results = self.storage.search_query_presentations(
-            query=q_storage,
+            query=query,
             chunk_types=chunk_types,
             n_results=n_results,
             scorer=self.scorer,
@@ -930,6 +1071,15 @@ class PresentationRetriever(BaseModel):
 
     def set_scorer(self, scorer: ScorerTypes):
         self.scorer = scorer
+
+    def get_log_params(self) -> Dict[str, Any]:
+        """Get parameters for MLflow logging"""
+        return {
+            "type": self.__class__.__name__,
+            "n_contexts": self.n_contexts,
+            "n_pages": self.n_pages,
+            "retrieve_page_contexts": self.retrieve_page_contexts,
+        }
 
 
 class LLMPresentationRetriever(PresentationRetriever):
@@ -1143,6 +1293,19 @@ Output Formatting:
             reranked = base_results["contexts"]
 
         return dict(contexts=reranked)
+
+    def get_log_params(self) -> Dict[str, Any]:
+        """Get parameters for MLflow logging including LLM specifics"""
+        params = super().get_log_params()
+        params.update(
+            {
+                "llm_model": self.llm.model_name,
+                "llm_temperature": self.llm.temperature,
+                "top_k": self.top_k,
+            }
+        )
+        return params
+
 
 RetrieverTypes = Union[PresentationRetriever, LLMPresentationRetriever]
 

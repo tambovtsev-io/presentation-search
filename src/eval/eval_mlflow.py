@@ -292,7 +292,7 @@ class MetricPresets:
 
     LLM = ["llmrelevance"]
 
-    FULL = BASIC + LLM
+    ALL = BASIC + LLM
 
     @classmethod
     def get_preset(cls, name: str) -> List[str]:
@@ -353,6 +353,15 @@ class MlflowConfig(BaseModel):
         self.metrics = MetricPresets.parse_specs(self.metrics)
         logger.info(f"Using metrics: {self.metrics}")
         return super().model_post_init(__context)
+
+    def get_log_params(self) -> Dict[str, Any]:
+        """Get parameters for MLflow logging"""
+        return {
+            "experiment_name": self.experiment_name,
+            "n_judge_contexts": self.n_judge_contexts,
+            "metrics": ",".join(self.metrics),
+            "metric_args": self.metric_args,
+        }
 
 
 class RAGEvaluatorMlflow:
@@ -422,7 +431,7 @@ class RAGEvaluatorMlflow:
             Dictionary mapping metric names to MetricResult objects
         """
         # Log evaluation start
-        self._logger.info(f"Evaluating question: {question}")
+        self._logger.info(f"Evaluating question: '{question}'")
 
         results = {}
 
@@ -435,7 +444,7 @@ class RAGEvaluatorMlflow:
                 # Log metric result
                 log_msg = f"Metric {metric.name}: {result.score}"
                 if result.explanation:
-                    log_msg += f" ({result.explanation})"
+                    log_msg += f" ({result.explanation[:200]})"
                 self._logger.info(log_msg)
 
             except Exception as e:
@@ -570,12 +579,39 @@ class RAGEvaluatorMlflow:
 
         for scorer in self.config.scorers:
             self._logger.info(f"Evaluating with scorer: {scorer.id}")
-            with mlflow.start_run(run_name=f"scorer_{scorer.id}"):
-                mlflow.log_params(scorer.model_dump())
-                self._logger.debug(f"Logged scorer parameters: {scorer.model_dump()}")
 
-                # Initialize retriever
-                retriever = self.config.get_retriever_with_scorer(scorer)
+            # Initialize retriever
+            retriever = self.config.get_retriever_with_scorer(scorer)
+
+            with mlflow.start_run(
+                run_name=f"scorer_{scorer.id}__retriever_{retriever.id}"
+            ):
+                # Log preprocessor
+                preprocessor_id = (
+                    retriever.storage.query_preprocessor.id
+                    if retriever.storage.query_preprocessor
+                    else "None"
+                )
+                mlflow.log_params({"preprocessing": preprocessor_id})
+                self._logger.info(f"Using preprocessor: {preprocessor_id}")
+
+                # Log config parameters
+                mlflow.log_params(
+                    {f"config_{k}": v for k, v in self.config.get_log_params().items()}
+                )
+                self._logger.debug("Logged config parameters")
+
+                # Log scorer parameters
+                mlflow.log_params(
+                    {f"scorer_{k}": v for k, v in scorer.model_dump().items()}
+                )
+                self._logger.debug("Logged scorer parameters")
+
+                # Initialize retriever and log its parameters
+                mlflow.log_params(
+                    {f"retriever_{k}": v for k, v in retriever.get_log_params().items()}
+                )
+                self._logger.debug("Logged retriever parameters")
 
                 # Initialize aggregation containers
                 results_log = []
@@ -594,6 +630,8 @@ class RAGEvaluatorMlflow:
                     if results_log
                     else len(questions_df)
                 )
+                if n_errors > 1:
+                    logger.error(f"{n_errors} while processing {retriever.id}")
 
                 # Process results
                 results_df = pd.DataFrame(results_log)

@@ -21,6 +21,7 @@ from src.eval.eval_mlflow import (
 )
 from src.eval.evaluate import LangsmithConfig, RAGEvaluatorLangsmith
 from src.rag import ChromaSlideStore, PresentationRetriever
+from src.rag.preprocess import RegexQueryPreprocessor
 from src.rag.score import (
     BaseScorer,
     ExponentialScorer,
@@ -109,6 +110,7 @@ class EvaluationCLI:
         model_name: Optional[str],
         collection: str,
         scorers: List[str],
+        preprocessing: Optional[str] = None,
         temperature: float = 0.2,
     ) -> EvalComponents:
         """Initialize common evaluation components
@@ -137,8 +139,10 @@ class EvaluationCLI:
         # Initialize components
         llm = self.config.model_config.get_llm(provider, model_name, temperature)
         embeddings = self.config.embedding_config.get_embeddings(provider)
+        query_preprocessor = {"regex": RegexQueryPreprocessor()}.get(preprocessing) if preprocessing else None
+
         storage = ChromaSlideStore(
-            collection_name=collection, embedding_model=embeddings
+            collection_name=collection, embedding_model=embeddings, query_preprocessor=query_preprocessor
         )
 
         logger.info(f"Initialized storage collection: {collection}")
@@ -159,12 +163,17 @@ class EvaluationCLI:
     def mlflow(
         self,
         retriever: str = "basic",
+        n_query_results: int = 50,
+        n_contexts: int = -1,
+        n_pages: int = -1,
+        preprocessing: str = "regex",
         provider: str = "vsegpt",
         model_name: Optional[str] = None,
         collection: str = "pres1",
         experiment: str = "PresRetrieve_eval",
         scorers: List[str] = ["default"],
         metrics: List[str] = ["basic"],
+        n_judge_contexts: int = 8,
         n_questions: int = -1,
         max_concurrent: int = 8,
         rate_limit_timeout: float = -1,
@@ -201,7 +210,7 @@ class EvaluationCLI:
 
             metrics: List of metric specifications
                 Options:
-                    - Presets: 'basic', 'llm', 'full'
+                    - Presets: 'basic', 'llm', 'all'
                     - Individual:  'presentationmatch', 'presentationfound', 'pagematch', 'pagefound', 'presentationcount',
                 Default: ['basic']
 
@@ -251,8 +260,14 @@ class EvaluationCLI:
                 model_name=model_name,
                 collection=collection,
                 scorers=scorers,
+                preprocessing=preprocessing,
                 temperature=temperature,
             )
+
+            # Set attributes
+            components.retriever.n_query_results = n_query_results
+            components.retriever.n_contexts = n_contexts
+            components.retriever.n_pages = n_pages
 
             # Setup evaluation config
             db_path = self.config.navigator.eval_runs / "mlruns.db"
@@ -270,6 +285,7 @@ class EvaluationCLI:
                         else -1.0
                     )
                 ),
+                n_judge_contexts=n_judge_contexts,
                 write_to_google=write_to_google,
             )
 
@@ -348,7 +364,7 @@ class EvaluationCLI:
                 questions_df = questions_df.sample(n_questions).reset_index()
                 logger.info(f"Selected {len(questions_df)} random questions")
 
-            evaluator.run_evaluation(questions_df)
+            evaluator.run_evaluation()
             logger.info("LangSmith evaluation completed successfully")
 
         except Exception as e:
