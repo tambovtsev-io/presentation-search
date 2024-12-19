@@ -184,73 +184,36 @@ class EvaluationCLI:
     ) -> None:
         """Run evaluation pipeline with MLflow tracking.
 
-        Options:
-            retriever: Type of retriever to use
-                Options: 'basic' (vector similarity) or 'llm' (LLM-enhanced)
-                Default: 'basic'
-
-            provider: Model provider to use
-                Options: 'vsegpt' or 'openai'
-                Default: 'vsegpt'
-
-            model_name: Specific model name to use (provider-dependent)
-                Default: None (uses provider's default model)
-
-            collection: ChromaDB collection name for document storage
-                Default: 'pres1'
-
-            experiment: MLflow experiment name
-                Default: 'PresRetrieve_eval'
-
-            scorers: List of scorer specifications
+        Key Arguments:
+            scorers: List of scorer specifications for ranking results
                 Options:
                     - Presets: 'default', 'all', 'weightedall', 'hyperbolic', 'exponential', 'step', 'linear'
                     - Individual: 'min', 'hyperbolic_k2.0_p3.0'
                 Default: ['default']
 
-            metrics: List of metric specifications
+            metrics: List of evaluation metrics to use
                 Options:
                     - Presets: 'basic', 'llm', 'all'
-                    - Individual:  'presentationmatch', 'presentationfound', 'pagematch', 'pagefound', 'presentationcount',
+                    - Individual: 'presentationmatch', 'presentationfound', 'pagematch',
+                                'pagefound', 'presentationcount', 'llmrelevance'
                 Default: ['basic']
 
-            n_questions: Number of random questions to evaluate
-                Use -1 for all questions
-                Default: -1
-
-            max_concurrent: Maximum number of concurrent evaluations
-                Default: 8
-
-            rate_limit_timeout: Rate limit delay between API calls
-                Use -1 to disable
-                Default: -1
-
-            temperature: Model temperature for LLM calls
-                Default: 0.2
-
-            spread_id: Google Spreadsheet ID for questions
-                Default: None (uses BENCHMARK_SPREADSHEET_ID env var)
-
-            sheet_id: Sheet ID within the spreadsheet
-                Default: None (uses first sheet)
-
-            write_to_google: Whether to write results to Google Sheets
-                Default: False
+            n_query_results: Number of results to fetch from vector store (default: 50)
+            n_contexts: Number of contexts per presentation, -1 for unlimited (default: -1)
+            n_pages: Number of pages per presentation, -1 for unlimited (default: -1)
+            n_judge_contexts: Number of contexts for LLM evaluation (default: 8)
+            preprocessing: Query preprocessing type ('regex' or None) (default: 'regex')
+            rate_limit_timeout: Delay between API calls in seconds, -1 to disable (default: -1)
 
         Examples:
             # Basic evaluation with default settings
             python -m src.run_evaluation mlflow
 
-            # LLM-enhanced retrieval with custom model
-            python -m src.run_evaluation mlflow --retriever=llm --provider=openai --model-name=gpt-4
-
-            # Custom evaluation with specific metrics
-            python -m src.run_evaluation mlflow --metrics=[basic,llmrelevance] --n-questions=20
-
-        Environment Variables:
-            BENCHMARK_SPREADSHEET_ID: Default spreadsheet ID if spread_id not provided
-            OPENAI_API_KEY: Required for OpenAI provider
-            VSEGPT_API_KEY: Required for VSE-GPT provider
+            # Custom scoring and metrics
+            python -m src.run_evaluation mlflow \
+                --scorers=[min,hyperbolic_k2.0_p3.0] \
+                --metrics=[basic,llmrelevance] \
+                --n_query_results=100
         """
         try:
             # Initialize components

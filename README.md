@@ -63,12 +63,13 @@ BENCHMARK_SPREADSHEET_ID="1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4"
 
 ```bash
 poetry run python -m src.run_descriptions process \
-    presentation_1 \
-    presentation_2 \
+    "4.Обзор уязвимостей и техник защиты для LLM_Евгений Кокуйкин_вер.3" \
+    "6.От промпта к агентной системе_Никита Венедиктов_вер.2" \
+    "5. Козлов Жизнь в платформе.pptx" \
     \
-    --provider vsegpt \
-    --model-name vis-openai/gpt-4o-mini \
-    --max-concurrent 3
+    --provider=vsegpt \
+    --model-name="vis-openai/gpt-4o-mini" \
+    --max-concurrent=3
 ```
 
 
@@ -80,12 +81,13 @@ poetry run python -m src.run_descriptions process \
 
 ```bash
 poetry run python -m src.run_json2chroma convert \
-    presentation_1 \
-    presentation_2 \
+    "4.Обзор уязвимостей и техник защиты для LLM_Евгений Кокуйкин_вер.3" \
+    "6.От промпта к агентной системе_Никита Венедиктов_вер.2" \
+    "5. Козлов Жизнь в платформе.pptx" \
     \
-    --collection pres1 \
-    --mode fresh \
-    --provider openai
+    --collection=pres1 \
+    --mode=fresh \
+    --provider=openai
 ```
 
 ### 3. Веб-интерфейс
@@ -108,15 +110,20 @@ poetry run mlflow ui --backend-store-uri sqlite:///data/processed/eval/runs/mlru
 ```sh
 poetry run python -m src.run_evaluation mlflow \
     --retriever="basic" \
-    --provider="vsegpt" \
-    --scorers=[min] \
-    --max_concurrent=5 \
-    --model_name="openai/gpt-4o-mini" \
-    --collection="pres_45" \
-    --experiment="PresRetrieve_45" \
+    --n_contexts=-1 \
+    --n_pages=-1 \
+    --provider="openai" \
+    --scorers=[basic] \
+    --metrics=[basic] \
+    --max_concurrent=10 \
+    --model_name="gpt-4o-mini" \
+    --collection="pres0" \
+    --experiment="PresRetrieve_25" \
     --n_questions=-1 \
     --temperature=0.2 \
-    --sheet_id="1219206941"
+    --sheet_id="Q15" \
+    --write_to_google=false \
+    --rate_limit_timeout=-1
 ```
 
 #### Langsmith
