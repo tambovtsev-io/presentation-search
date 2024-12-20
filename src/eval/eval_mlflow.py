@@ -168,6 +168,34 @@ class PresentationCount(BaseMetric):
         )
 
 
+class BestChunkMatch(BaseMetric):
+    """Count number of retrieved presentations"""
+
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+        """Count presentations in retrieved results"""
+        best_pres = run_output["contexts"][0]
+        best_chunk = best_pres["best_chunk"]
+
+        true_content_type = ground_truth["content_type"]
+        found_content_type = best_chunk["chunk_type"]
+
+        score = 0
+        if true_content_type in found_content_type:  # text_content and visual_content
+            score = 1
+        if true_content_type == "general" and found_content_type in [
+            "general_description",
+            "conclusions_and_insights",
+            "layout_and_composition",
+        ]:
+            score = 1
+
+        return MetricResult(
+            name=self.name,
+            score=float(score),
+            explanation=f"Found content type '{found_content_type}' matches ground truth '{true_content_type}'",
+        )
+
+
 class LLMRelevance(BaseMetric):
     """LLM-based relevance scoring"""
 
@@ -267,8 +295,9 @@ class MetricsRegistry:
         "presentationfound": PresentationFound,
         "pagematch": PageMatch,
         "pagefound": PageFound,
-        "llmrelevance": LLMRelevance,
         "presentationcount": PresentationCount,
+        "bestchunkmatch": BestChunkMatch,
+        "llmrelevance": LLMRelevance,
     }
 
     @classmethod
@@ -290,6 +319,7 @@ class MetricPresets:
         "pagematch",
         "pagefound",
         "presentationcount",
+        "bestchunkmatch",
     ]
 
     LLM = ["llmrelevance"]
@@ -483,6 +513,7 @@ class RAGEvaluatorMlflow:
                 "question": row["question"],
                 "pres_name": row["pres_name"],
                 "pages": [int(x) for x in row["page"].split(",") if x],
+                "content_type": row["content"],
             }
 
             try:
@@ -499,6 +530,7 @@ class RAGEvaluatorMlflow:
                 # Update aggregated results
                 result_row = {
                     "question": row["question"],
+                    "expected_content_type": row["content"],
                     "expected_presentation": row["pres_name"],
                     "expected_pages": row["page"],
                     "retrieved_presentations": [
@@ -507,6 +539,7 @@ class RAGEvaluatorMlflow:
                     "retrieved_pages": [
                         ",".join(map(str, p["pages"])) for p in output["contexts"]
                     ],
+                    "best_chunk_type": output["contexts"][0]["best_chunk"]["chunk_type"],  # fmt: skip
                 }
 
                 for metric_name, metric_result in results.items():
