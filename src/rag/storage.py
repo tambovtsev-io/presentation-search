@@ -1027,7 +1027,7 @@ class PresentationRetriever(BaseModel):
             Dictionary with presentation results and formatted context
         """
 
-        results = self.storage.search_query_presentations(
+        results = await self.storage.asearch_query_presentations(
             query=query,
             chunk_types=chunk_types,
             n_results=n_results,
@@ -1036,7 +1036,9 @@ class PresentationRetriever(BaseModel):
             metadata_filter=metadata_filter,
         )
 
-        return self.results2contexts(results)
+        out = self.results2contexts(results)
+        out["pres_results"] = results.model_dump()
+        return out
 
     def retrieve(self, *args, **kwargs) -> Dict[str, Any]:
         """Synchronous wrapper for retrieve"""
@@ -1048,16 +1050,18 @@ class PresentationRetriever(BaseModel):
         for i, pres in enumerate(results.presentations[:n_pres]):
 
             # Gather relevant info from presentation
+            best_chunk = pres.best_slide.matched_chunk
             pres_info = dict(
                 pres_name=pres.title,
                 pages=[slide.page_num + 1 for slide in pres.slides],
+                best_chunk=dict(
+                    chunk_type=best_chunk.chunk_type, distance=best_chunk.score
+                ),
             )
 
             if self.retrieve_page_contexts:
                 page_contexts = self.format_contexts(pres, self.n_pages)
-                pres_info["contexts"] = (
-                    page_contexts  # pyright: ignore[reportArgumentType]
-                )
+                pres_info["contexts"] = page_contexts
 
             contexts.append(pres_info)
 
@@ -1274,18 +1278,14 @@ class LLMPresentationRetriever(PresentationRetriever):
         metadata_filter: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         """Retrieve presentations and format context asynchronously"""
-        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
 
-        results = self.storage.search_query_presentations(
-            query=q_storage,
-            chunk_types=chunk_types,
-            n_results=n_results,
-            scorer=self.scorer,
-            max_distance=max_distance,
-            metadata_filter=metadata_filter,
+        base_results = await super().aretrieve(
+            query,
+            chunk_types,
+            n_results,
+            max_distance,
+            metadata_filter,
         )
-
-        base_results = self.results2contexts(results)
 
         # Rerank using LLM asynchronously
         if len(base_results["contexts"]) > 1:
