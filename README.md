@@ -34,7 +34,7 @@ poetry install
 3. Настройте переменные окружения в `.env`:
 ```
 # Use OpenAI
-OPENAI_API_KEY="sk-OGTI_AZVY2pZTGCj6_ZnzZojCx9YDThDm4SueiGTcYT3BlbkFJu9t0OHQM_Q7S3bDt8shTpNuYL_0qdpR_wVZG8VIeUA"
+OPENAI_API_KEY=""
 
 # Or you can use vsegpt.ru
 VSEGPT_API_BASE="https://api.vsegpt.ru/v1"
