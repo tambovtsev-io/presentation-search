@@ -7,6 +7,7 @@ from datetime import datetime
 from json import load
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from textwrap import dedent
 from typing import Any, Dict, List, Optional, Protocol, Union
 
 import mlflow
@@ -185,43 +186,44 @@ class LLMRelevance(BaseMetric):
     )
 
     def model_post_init(self, __context: Any):
-        prompt_template = PromptTemplate.from_template(
-            """\
-You are an expert relevance assessor for a presentation retrieval system. Your task is to evaluate whether the retrieved slide descriptions contain relevant information that answers the user's query. Analyze all provided slide descriptions as a collective unit and provide a detailed explanation along with a relevance score.
+        # fmt: off
+        prompt_template = PromptTemplate.from_template(dedent(
+        """\
+        You are an expert relevance assessor for a presentation retrieval system. Your task is to evaluate whether the retrieved slide descriptions contain relevant information that answers the user's query. Analyze all provided slide descriptions as a collective unit and provide a detailed explanation along with a relevance score.
 
-Each slide description contains these equally weighted sections:
-- Text Content: The actual text present on the slide
-- Visual Content: Description of images, charts, or other visual elements
-- Topic Overview: Main themes and subjects covered
-- Insights and Conclusions: Key takeaways and conclusions
-- Layout and Composition: Structural organization of the slide
+        Each slide description contains these equally weighted sections:
+        - Text Content: The actual text present on the slide
+        - Visual Content: Description of images, charts, or other visual elements
+        - Topic Overview: Main themes and subjects covered
+        - Insights and Conclusions: Key takeaways and conclusions
+        - Layout and Composition: Structural organization of the slide
 
-Scoring Guidelines:
-- 9-10: Perfect match - Content directly and comprehensively answers the query (e.g., query asks about sales trends, and slides show exact sales data and analysis)
-- 7-8: Strong relevance - Content clearly relates to the query but may miss minor details (e.g., query asks about complete workflow, slides show most but not all steps)
-- 5-6: Moderate relevance - Content addresses the query partially or indirectly (e.g., query asks about specific feature, slides discuss it briefly among other topics)
-- 3-4: Weak relevance - Content touches the topic but doesn't provide substantial answer (e.g., query asks about implementation details, slides only mention the concept)
-- 1-2: Minimal relevance - Only slight connection to the query (e.g., query asks about specific metric, slides only mention related general category)
-- 0: No relevance - Content has no connection to the query
+        Scoring Guidelines:
+        - 9-10: Perfect match - Content directly and comprehensively answers the query (e.g., query asks about sales trends, and slides show exact sales data and analysis)
+        - 7-8: Strong relevance - Content clearly relates to the query but may miss minor details (e.g., query asks about complete workflow, slides show most but not all steps)
+        - 5-6: Moderate relevance - Content addresses the query partially or indirectly (e.g., query asks about specific feature, slides discuss it briefly among other topics)
+        - 3-4: Weak relevance - Content touches the topic but doesn't provide substantial answer (e.g., query asks about implementation details, slides only mention the concept)
+        - 1-2: Minimal relevance - Only slight connection to the query (e.g., query asks about specific metric, slides only mention related general category)
+        - 0: No relevance - Content has no connection to the query
 
-Evaluation Rules:
-1. Award points if ANY section (text, visual, etc.) contains relevant information
-2. In your explanation, cite specific sections and content that justify your score
-3. Treat all sections equally - a match in visual content is as valuable as a match in text content
-4. Consider all slides collectively - relevant information might be spread across multiple slides
-5. Partial matches are valuable if they provide any useful information related to the query
+        Evaluation Rules:
+        1. Award points if ANY section (text, visual, etc.) contains relevant information
+        2. In your explanation, cite specific sections and content that justify your score
+        3. Treat all sections equally - a match in visual content is as valuable as a match in text content
+        4. Consider all slides collectively - relevant information might be spread across multiple slides
+        5. Partial matches are valuable if they provide any useful information related to the query
 
-# Slide Descriptions
-{context_str}
+        # Slide Descriptions
+        {context_str}
 
---- END OF SLIDE DESCRIPTIONS ---
+        --- END OF SLIDE DESCRIPTIONS ---
 
-Question: {query_str}
+        Question: {query_str}
 
-Output formatting:
-{format_instructions}
-"""
-        )
+        Output formatting:
+        {format_instructions}
+        """))
+        # fmt: on
 
         self._parser = JsonOutputParser(pydantic_object=self.RelevanceOutput)
         self._chain = prompt_template | self.llm.with_structured_output(

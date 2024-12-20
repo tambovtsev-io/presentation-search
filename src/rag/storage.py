@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections import OrderedDict, defaultdict
 from pathlib import Path
+from textwrap import dedent
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 from uuid import uuid4
 
@@ -1101,25 +1102,28 @@ class LLMPresentationRetriever(PresentationRetriever):
     _parser: JsonOutputParser = JsonOutputParser(pydantic_object=RelevanceRanking)
 
     rerank_prompt: PromptTemplate = PromptTemplate(
-        template="""You are evaluating search results for presentation slides.
-Rate how relevant each document is to the given query.
-The relevance score should be from 1-10 where:
-- 1-3: Low relevance, mostly unrelated content
-- 4-6: Moderate relevance, some related points
-- 7-8: High relevance, clearly addresses the query
-- 9-10: Perfect match, directly answers the query
+        template=dedent(
+            """\
+            You are evaluating search results for presentation slides.
+            Rate how relevant each document is to the given query.
+            The relevance score should be from 1-10 where:
+            - 1-3: Low relevance, mostly unrelated content
+            - 4-6: Moderate relevance, some related points
+            - 7-8: High relevance, clearly addresses the query
+            - 9-10: Perfect match, directly answers the query
 
-Evaluate ALL documents and provide brief explanations.
+            Evaluate ALL documents and provide brief explanations.
 
-Presentations to evaluate:
+            Presentations to evaluate:
 
-{context_str}
+            {context_str}
 
-Question: {query_str}
+            Question: {query_str}
 
-Output Formatting:
-{format_instructions}
-""",
+            Output Formatting:
+            {format_instructions}
+            """
+        ),
         input_variables=["context_str", "query_str", "format_instructions"],
     )
 
