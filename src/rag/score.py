@@ -1,4 +1,5 @@
-from typing import List, Tuple, Union
+import re
+from typing import ClassVar, Dict, List, Pattern, Tuple, Union
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
@@ -203,36 +204,172 @@ ScorerTypes = Union[
 ]
 
 
-class ScoringFactory:
-    """Factory for creating scorer instances"""
+class ScorerFactory(BaseModel):
+    """Factory for creating scorer instances from specifications using regex patterns"""
+
+    patterns: ClassVar[Dict[str, Pattern]] = {
+        "min": re.compile(r"^min$"),
+        "weighted": re.compile(r"^weighted$"),
+        "hyperbolic": re.compile(
+            r"""
+             ^hyperbolic          # Base name
+             (?:_weighted)?       # Optional weighted variant
+             _k(?P<k>\d+\.?\d*)   # k parameter (float)
+             _p(?P<p>\d+\.?\d*)$  # p parameter (float)
+             """,
+            re.VERBOSE,
+        ),
+        "exponential": re.compile(
+            r"""
+             ^exponential         # Base name
+             (?:_weighted)?       # Optional weighted variant
+             _a(?P<a>\d+\.?\d*)   # a parameter (float)
+             _w(?P<w>\d+\.?\d*)   # w parameter (float)
+             _s(?P<s>\d+\.?\d*)$  # s parameter (float)
+             """,
+            re.VERBOSE,
+        ),
+        "step": re.compile(
+            r"""
+             ^step_               # Base name
+             (?P<points>          # Start points capture
+                 (?:              # Start group for each point
+                     \d+          # x value (int)
+                     -            # separator
+                     \d+\.?\d*    # y value (float)
+                     _?           # Optional trailing underscore
+                 )+               # One or more points
+             )$                   # End points capture
+             """,
+            re.VERBOSE,
+        ),
+        "linear": re.compile(
+            r"""
+             ^linear_             # Base name
+             (?P<points>          # Start points capture
+                 (?:              # Start group for each point
+                     \d+          # x value (int)
+                     -            # separator
+                     \d+\.?\d*    # y value (float)
+                     _?           # Optional trailing underscore
+                 )+               # One or more points
+             )$                   # End points capture
+             """,
+            re.VERBOSE,
+        ),
+    }
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @staticmethod
+    def _parse_points(points_str: str) -> List[Tuple[int, float]]:
+        """Parse points string into list of tuples.
+        Format: "1-1.0_3-0.9_8-0.7" -> [(1, 1.0), (3, 0.9), (8, 0.7)]
+        """
+        points = []
+        for point in points_str.rstrip("_").split("_"):
+            x, y = point.split("-")
+            points.append((int(x), float(y)))
+        return points
 
     @staticmethod
     def create_default() -> BaseScorer:
         """Create default scorer"""
         return HyperbolicScorer()
 
-    @staticmethod
-    def create_from_id(scorer_id: str) -> BaseScorer:
-        """Create scorer from identifier string"""
-        if scorer_id == "weightedscorer":
-            return WeightedScorer()
-        elif scorer_id.startswith("hyperbolic"):
-            k = float(scorer_id.split("k")[1].split("_")[0])
-            p = float(scorer_id.split("p")[1])
-            return HyperbolicScorer(k=k, p=p)
-        elif scorer_id.startswith("step"):
-            # Parse ranges from id: step_1-1_3-0.9_8-0.7
-            ranges_str = scorer_id.split("_")[1:]
-            ranges = [
-                (int(r.split("-")[0]), float(r.split("-")[1])) for r in ranges_str
-            ]
-            return StepScorer(ranges=ranges)
-        elif scorer_id.startswith("linear"):
-            # Parse points from id: linear_1-1_3-0.9_8-0.7
-            points_str = scorer_id.split("_")[1:]
-            points = [
-                (int(p.split("-")[0]), float(p.split("-")[1])) for p in points_str
-            ]
-            return LinearScorer(points=points)
+    @classmethod
+    def create_from_id(cls, scorer_id: str) -> BaseScorer:
+        """Create scorer from identifier string using regex patterns
 
-        raise ValueError(f"Unknown scorer id: {scorer_id}")
+        Args:
+            scorer_id: Scorer identifier string
+                Examples:
+                - "min"
+                - "hyperbolic_k2.0_p3.0"
+                - "hyperbolic_weighted_k2.0_p3.0"
+                - "exponential_a0.7_w1.7_s2.8"
+                - "step_1-1.0_3-0.9_8-0.7"
+                - "linear_1-1.0_3-0.9_8-0.7"
+
+        Returns:
+            Configured scorer instance
+
+        Raises:
+            ValueError: If scorer_id format is invalid
+        """
+        scorer_id = scorer_id.lower()
+
+        for scorer_type, pattern in cls.patterns.items():
+            match = pattern.match(scorer_id)
+            if not match:
+                continue
+
+            if scorer_type == "min":
+                return MinScorer()
+
+            elif scorer_type == "weighted":
+                return WeightedScorer()
+
+            elif scorer_type == "hyperbolic":
+                k = float(match.group("k"))
+                p = float(match.group("p"))
+                return (
+                    HyperbolicWeightedScorer(k=k, p=p)
+                    if "_weighted" in scorer_id
+                    else HyperbolicScorer(k=k, p=p)
+                )
+
+            elif scorer_type == "exponential":
+                a = float(match.group("a"))
+                w = float(match.group("w"))
+                s = float(match.group("s"))
+                return (
+                    ExponentialWeightedScorer(a=a, w=w, s=s)
+                    if "_weighted" in scorer_id
+                    else ExponentialScorer(a=a, w=w, s=s)
+                )
+
+            elif scorer_type in ["step", "linear"]:
+                points = cls._parse_points(match.group("points"))
+                return (
+                    StepScorer(ranges=points)
+                    if scorer_type == "step"
+                    else LinearScorer(points=points)
+                )
+
+        raise ValueError(f"Invalid scorer id format: {scorer_id}")
+
+    @classmethod
+    def parse_scorer_specs(cls, specs: List[str]) -> List[BaseScorer]:
+        """Parse scorer specifications into scorer instances
+
+        Args:
+            specs: List of scorer specifications in format:
+                - Simple: "min", "weighted"
+                - Parameterized: "hyperbolic_k2.0_p3.0"
+                - With suffix: "hyperbolic_weighted_k2.0_p3.0"
+                - Step/Linear: "step_1-1.0_3-0.9_8-0.7"
+
+        Returns:
+            List of configured scorer instances
+        """
+        scorers = []
+        for spec in specs:
+            try:
+                scorer = cls.create_from_id(spec.lower())
+                scorers.append(scorer)
+            except Exception as e:
+                raise ValueError(f"Failed to parse scorer spec '{spec}': {str(e)}")
+        return scorers
+
+
+class ScorerPresets:
+    """Predefined scorer configurations"""
+
+    DEFAULT = ["min", "exponential_a0.7_w1.7_s2.8"]
+    WEIGHTEDALL = ["weighted", "hyperbolic_weighted_k2.0_p3.0", "exponential_weighted_a0.7_w1.7_s2.8"]
+    HYPERBOLIC = ["hyperbolic_k2.0_p3.0"]
+    EXPONENTIAL = ["exponential_a0.7_w1.7_s2.8"]
+    STEP = ["step_1-1.0_3-0.9_8-0.7"]
+    LINEAR = ["linear_1-1.0_3-0.9_8-0.7"]
+    ALL = DEFAULT + WEIGHTEDALL + EXPONENTIAL + STEP + LINEAR

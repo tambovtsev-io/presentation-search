@@ -144,9 +144,15 @@ ENV/
 env.bak/
 venv.bak/
 
+# Configs
+google_config.json
+
 # Spyder project settings
 .spyderproject
 .spyproject
+
+# VSCode
+*.code-workspace
 
 # Rope project settings
 .ropeproject

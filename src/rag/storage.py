@@ -1,15 +1,25 @@
+import asyncio
 import logging
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from pathlib import Path
+from textwrap import dedent
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from uuid import uuid4
 
 import chromadb
 import numpy as np
+import pandas as pd
 from chromadb.api.types import QueryResult
 from chromadb.config import Settings
 from datasets.utils import metadata
+from langchain.chains.base import Chain
 from langchain.schema import Document
+from langchain_core.callbacks.manager import CallbackManagerForChainRun
 from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseLanguageModel
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
 from langchain_openai.embeddings import OpenAIEmbeddings
 from pandas.core.algorithms import rank
 from pydantic import BaseModel, ConfigDict, Field, conbytes
@@ -19,6 +29,7 @@ from src.chains.prompts import JsonH1AndGDPrompt
 from src.config.model_setup import EmbeddingConfig
 from src.config.navigator import Navigator
 from src.rag import BaseScorer, HyperbolicScorer, ScorerTypes
+from src.rag.preprocess import RegexQueryPreprocessor
 from src.rag.score import ExponentialScorer, MinScorer
 
 logger = logging.getLogger(__name__)
@@ -224,7 +235,7 @@ class ScoredPresentations(BaseModel):
 class SlideIndexer:
     """Process slides into chunks suitable for ChromaDB storage"""
 
-    def __init__(self):
+    def __init__(self, collection_name: str):
         """Initialize indexer with semantic section types"""
         # Main content sections from SlideDescription
         self._content_sections = ["text_content", "visual_content"]
@@ -237,16 +248,29 @@ class SlideIndexer:
         ]
 
         self._chunk_types = self._content_sections + self._general_sections
+        self.collection_name = collection_name
 
     def _create_chunk_id(self, slide: SlideAnalysis, chunk_type: str) -> str:
         """Create unique identifier for a chunk
 
-        Format: presentation_name__page_num__chunk_type
+        Format: collection_name__presentation_name__page_num__chunk_type
         """
         # Get presentation name from path
         pres_name = slide.pdf_path.stem
         clean_name = "".join(c for c in pres_name if c.isalnum())
-        return f"{clean_name}__{slide.page_num}__{chunk_type}"
+        return f"{self.collection_name}__{clean_name}__{slide.page_num}__{chunk_type}"
+
+    def _get_base_id(self, chunk_id: str) -> str:
+        """Extract base identifier without short ID
+
+        Args:
+            chunk_id: Full chunk identifier
+
+        Returns:
+            Base identifier (presentation_name__page_num__chunk_type)
+        """
+        # Split by double underscore and take all parts except short ID
+        return "__".join(chunk_id.split("__")[1:])
 
     def _prepare_chunk_metadata(
         self, slide: SlideAnalysis, chunk_type: str
@@ -319,10 +343,16 @@ class SlideIndexer:
             #         metadata=metadata
             #     ))
 
-            logger.info(
-                f"Created {len(chunks)} chunks for slide {slide.page_num} "
-                f"of '{slide.pdf_path.stem}'"
-            )
+            if len(chunks):
+                logger.info(
+                    f"Created {len(chunks)} chunks for slide {slide.page_num} "
+                    f"of '{slide.pdf_path.stem}'"
+                )
+            else:
+                logger.warning(
+                    f"Created {len(chunks)} chunks for slide {slide.page_num} "
+                    f"of '{slide.pdf_path.stem}'"
+                )
             return chunks
 
         except Exception as e:
@@ -346,8 +376,9 @@ class ChromaSlideStore:
 
     def __init__(
         self,
-        collection_name: str = "pres0",
+        collection_name: str = "pres1",
         embedding_model: Embeddings = EmbeddingConfig().load_openai(),
+        query_preprocessor: Optional[RegexQueryPreprocessor] = RegexQueryPreprocessor(),
     ):
         """Initialize ChromaDB storage"""
         self.navigator = Navigator()
@@ -369,8 +400,11 @@ class ChromaSlideStore:
         # self._api_key = os.getenv("OPENAI_API_KEY")
         self._embeddings = embedding_model
 
+        # Initialize query preprocessor
+        self.query_preprocessor = query_preprocessor
+
         # Initialize indexer
-        self._indexer = SlideIndexer()
+        self._indexer = SlideIndexer(collection_name=collection_name)
 
     def add_slide(self, slide: SlideAnalysis) -> None:
         """Add single slide to storage"""
@@ -417,7 +451,7 @@ class ChromaSlideStore:
         """Get embeddings for texts"""
         return self._embeddings.embed_documents(texts)
 
-    def query_storage(
+    async def aquery_storage(
         self,
         query: str,
         n_results: int = 10,
@@ -433,14 +467,29 @@ class ChromaSlideStore:
         Returns:
             List of ScoredChunks sorted by similarity
         """
+        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
+
         # Get query embedding
-        query_embedding = self._embeddings.embed_query(query)
+        query_embedding = await self._embeddings.aembed_query(q_storage)
 
         # Query ChromaDB
         result = self._collection.query(
             query_embeddings=[query_embedding], n_results=n_results, where=where
         )
+
+        ## Run ChromaDB query in executor to avoid blocking
+        # result = await asyncio.get_event_loop().run_in_executor(
+        #     None,
+        #     lambda: self._collection.query(
+        #         query_embeddings=[query_embedding],
+        #         n_results=n_results,
+        #         where=where
+        #     )
+        # )
         return result
+
+    def query_storage(self, *args, **kwargs):
+        return asyncio.run(self.aquery_storage(*args, **kwargs))
 
     def _process_chroma_results(self, results: QueryResult) -> List[ScoredChunk]:
         """Convert ChromaDB results to list of (Document, score) tuples
@@ -462,7 +511,7 @@ class ChromaSlideStore:
 
         return sorted(scored_chunks, key=lambda chunk: chunk.score)
 
-    def search_query(
+    async def asearch_query(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -517,7 +566,10 @@ class ChromaSlideStore:
             ),
         )
 
-    def search_query_pages(
+    def search_query(self, *args, **kwargs):
+        return asyncio.run(self.asearch_query(*args, **kwargs))
+
+    async def asearch_query_pages(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -538,7 +590,7 @@ class ChromaSlideStore:
             List of search results with full slide context, deduplicated by slide_id
         """
         # First perform regular search
-        search_results = self.search_query(
+        search_results = await self.asearch_query(
             query=query,
             chunk_types=chunk_types,
             n_results=n_results,  # * 3,  # Get more to ensure different pages
@@ -593,7 +645,10 @@ class ChromaSlideStore:
 
         return page_results  # [:n_results]
 
-    def search_query_presentations(
+    def search_query_pages(self, *args, **kwargs):
+        return asyncio.run(self.asearch_query_pages(*args, **kwargs))
+
+    async def asearch_query_presentations(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -616,7 +671,7 @@ class ChromaSlideStore:
             List of presentations with their matching slides, sorted by best match
         """
         # Get initial search results with enough buffer for filtering
-        search_results = self.search_query_pages(
+        search_results = await self.asearch_query_pages(
             query=query,
             chunk_types=chunk_types,
             n_results=n_results,
@@ -661,6 +716,9 @@ class ChromaSlideStore:
 
         return ScoredPresentations(presentations=presentation_results, scorer=scorer)
 
+    def search_query_presentations(self, *args, **kwargs):
+        return asyncio.run(self.asearch_query_presentations(*args, **kwargs))
+
     def get_by_metadata(
         self, metadata_filter: Dict, n_results: Optional[int] = None
     ) -> List[Document]:
@@ -678,11 +736,208 @@ class ChromaSlideStore:
         documents = []
         for i in range(len(results["ids"])):
             doc = Document(
-                page_content=results["documents"][i], metadata=results["metadatas"][i]
+                page_content=results["documents"][i], metadata=results["metadatas"][i]  # type: ignore
             )
             documents.append(doc)
 
         return documents
+
+    async def add_slide_async(self, slide: SlideAnalysis) -> None:
+        """Add single slide to storage asynchronously"""
+        # Process slide into chunks
+        chunks = self._indexer.process_slide(slide)
+
+        # Skip if no chunks
+        if not chunks:
+            logger.warning(
+                f"Slide {slide.page_num} from '{slide.pdf_path}' had no chunks"
+            )
+            return
+
+        # Prepare data for ChromaDB
+        ids = [chunk.id for chunk in chunks]
+        texts = [chunk.text for chunk in chunks]
+        metadatas = [chunk.metadata for chunk in chunks]
+
+        # Get embeddings asynchronously
+        embeddings = await self._embeddings.aembed_documents(texts)
+
+        # Add to ChromaDB
+        self._collection.add(
+            ids=ids, documents=texts, metadatas=metadatas, embeddings=embeddings  # type: ignore
+        )
+
+    async def process_presentation_async(
+        self, presentation: PresentationAnalysis, max_concurrent: int = 5
+    ) -> None:
+        """Process a single presentation asynchronously with concurrency limit
+
+        Args:
+            presentation: Presentation to process
+            max_concurrent: Maximum number of slides to process concurrently
+        """
+        from asyncio import Semaphore, create_task, gather
+
+        # Create semaphore for concurrency control
+        semaphore = Semaphore(max_concurrent)
+
+        logger.info(f"Start processing presentation '{presentation.name}'")
+
+        async def process_slide_with_semaphore(slide: SlideAnalysis):
+            async with semaphore:
+                try:
+                    await self.add_slide_async(slide)
+                    logger.info(
+                        f"Processed slide {slide.page_num} of '{presentation.name}'"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to process slide {slide.page_num} of "
+                        f"'{presentation.name}': {str(e)}"
+                    )
+
+        # Create tasks for all slides
+        tasks = [
+            create_task(process_slide_with_semaphore(slide))
+            for slide in presentation.slides
+        ]
+
+        # Wait for all tasks to complete
+        await gather(*tasks)
+        logger.info(f"Completed processing presentation: '{presentation.name}'")
+
+    def validate_presentations(self) -> Tuple[pd.DataFrame, List[str]]:
+        """Validate that all presentation slides were properly stored.
+
+        Uses metadata from stored chunks to compare number of pages in presentations.
+        Result shows how many pages are in ChromaDB vs expected total pages.
+
+        Returns:
+            Tuple containing:
+            - DataFrame with presentations statistics:
+                Columns:
+                - presentation: Presentation name
+                - stored_pages: Number of pages found in ChromaDB
+                - chunks_per_page: Average chunks per page
+                - total_chunks: Total chunks for this presentation
+                - chunk_types: Set of unique chunk types
+                - min_page: First page number
+                - max_page: Last page number
+            - List of validation warnings if any inconsistencies found
+        """
+        # Get all stored chunks
+        all_chunks = self._collection.get()
+
+        # Group chunks by presentation
+        pres_pages: Dict[str, Set[int]] = defaultdict(set)  # Unique pages
+        pres_chunks: Dict[str, int] = defaultdict(int)  # Total chunks
+        pres_types: Dict[str, Set[str]] = defaultdict(set)  # Chunk types
+
+        # Process each chunk's metadata
+        for metadata in all_chunks["metadatas"]:
+            if not metadata:
+                continue
+
+            pdf_path = metadata.get("pdf_path", "")
+            if not pdf_path:
+                continue
+
+            # Extract presentation name from path
+            pres_name = Path(pdf_path).stem
+
+            # Track pages, chunks and types
+            page_num = int(metadata.get("page_num", -1))
+            if page_num >= 0:
+                pres_pages[pres_name].add(page_num)
+
+            chunk_type = metadata.get("chunk_type", "unknown")
+            pres_types[pres_name].add(chunk_type)
+
+            pres_chunks[pres_name] += 1
+
+        # Compile statistics and warnings
+        stats_data = []
+        warnings = []
+
+        for pres_name in pres_pages:
+            stored_pages = len(pres_pages[pres_name])
+            total_chunks = pres_chunks[pres_name]
+            chunks_per_page = total_chunks / stored_pages if stored_pages > 0 else 0
+            chunk_types = pres_types[pres_name]
+            pages = sorted(pres_pages[pres_name])
+
+            stats_data.append(
+                {
+                    "presentation": pres_name,
+                    "stored_pages": stored_pages,
+                    "chunks_per_page": round(chunks_per_page, 2),
+                    "total_chunks": total_chunks,
+                    "chunk_types": chunk_types,
+                    "min_page": min(pages) if pages else None,
+                    "max_page": max(pages) if pages else None,
+                }
+            )
+
+            # Check for potential issues
+            if (
+                chunks_per_page < 3
+            ):  # Assuming we should have at least 3 chunks per page
+                warnings.append(
+                    f"Low chunks per page ({chunks_per_page:.1f}) " f"for '{pres_name}'"
+                )
+
+            # Check for page number gaps
+            if pages:
+                expected_pages = set(range(min(pages), max(pages) + 1))
+                missing_pages = expected_pages - pres_pages[pres_name]
+                if missing_pages:
+                    warnings.append(
+                        f"Missing pages {sorted(missing_pages)} in '{pres_name}'"
+                    )
+
+            # Check for missing chunk types
+            expected_types = {
+                "text_content",
+                "visual_content",
+                "topic_overview",
+                "conclusions_and_insights",
+                "layout_and_composition",
+            }
+            missing_types = expected_types - chunk_types
+            if missing_types:
+                warnings.append(f"Missing chunk types {missing_types} in '{pres_name}'")
+
+        # Create DataFrame from stats
+        stats_df = pd.DataFrame(stats_data).sort_values("presentation")
+
+        return stats_df, warnings
+
+    def validate_storage(self) -> Tuple[pd.DataFrame, List[str]]:
+        """Helper function to run validation and display results.
+
+        Args:
+            store: ChromaSlideStore instance to validate
+
+        Returns:
+            Tuple of (statistics DataFrame, list of warnings)
+        """
+        from IPython.display import display
+
+        stats_df, warnings = self.validate_presentations()
+
+        # Display statistics
+        print("\nPresentation Statistics:")
+        display(stats_df)
+
+        # Display warnings if any
+        if warnings:
+            print("\nWarnings:")
+            for warning in warnings:
+                print(f"- {warning}")
+        else:
+            print("\nNo validation warnings found.")
+
+        return stats_df, warnings
 
 
 class PresentationRetriever(BaseModel):
@@ -691,9 +946,18 @@ class PresentationRetriever(BaseModel):
     storage: ChromaSlideStore
     scorer: BaseScorer = ExponentialScorer()
     n_contexts: int = -1
+    n_pages: int = -1
+    n_query_results: int = 70
     retrieve_page_contexts: bool = True
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @property
+    def id(self) -> str:
+        return self.__class__.__name__.lower()
+
+    def set_n_query_results(self, n_query_results: int):
+        self.n_query_results = n_query_results
 
     def format_slide(
         self, slide: SearchResultPage, metadata: Optional[Dict[str, Any]] = None
@@ -742,7 +1006,7 @@ class PresentationRetriever(BaseModel):
 
         return slide_texts
 
-    def retrieve(
+    async def aretrieve(
         self,
         query: str,
         chunk_types: Optional[List[str]] = None,
@@ -762,8 +1026,8 @@ class PresentationRetriever(BaseModel):
         Returns:
             Dictionary with presentation results and formatted context
         """
-        # Query the store
-        results = self.storage.search_query_presentations(
+
+        results = await self.storage.asearch_query_presentations(
             query=query,
             chunk_types=chunk_types,
             n_results=n_results,
@@ -772,17 +1036,31 @@ class PresentationRetriever(BaseModel):
             metadata_filter=metadata_filter,
         )
 
+        out = self.results2contexts(results)
+        out["pres_results"] = results.model_dump()
+        return out
+
+    def retrieve(self, *args, **kwargs) -> Dict[str, Any]:
+        """Synchronous wrapper for retrieve"""
+        return asyncio.run(self.aretrieve(*args, **kwargs))
+
+    def results2contexts(self, results: ScoredPresentations):
         contexts = []
-        for pres in results.presentations:
+        n_pres = self.n_contexts if self.n_contexts > 0 else len(results)
+        for i, pres in enumerate(results.presentations[:n_pres]):
 
             # Gather relevant info from presentation
+            best_chunk = pres.best_slide.matched_chunk
             pres_info = dict(
                 pres_name=pres.title,
                 pages=[slide.page_num + 1 for slide in pres.slides],
+                best_chunk=dict(
+                    chunk_type=best_chunk.chunk_type, distance=best_chunk.score
+                ),
             )
 
             if self.retrieve_page_contexts:
-                page_contexts = self.format_contexts(pres, self.n_contexts)
+                page_contexts = self.format_contexts(pres, self.n_pages)
                 pres_info["contexts"] = page_contexts
 
             contexts.append(pres_info)
@@ -796,29 +1074,346 @@ class PresentationRetriever(BaseModel):
     def __call__(self, inputs: Dict[str, Any]):
         return self.retrieve(inputs["question"])
 
+    def set_scorer(self, scorer: ScorerTypes):
+        self.scorer = scorer
 
-def create_slides_database(
-    presentations: List[PresentationAnalysis], collection_name: str = "slides"
+    def get_log_params(self) -> Dict[str, Any]:
+        """Get parameters for MLflow logging"""
+        return {
+            "type": self.__class__.__name__,
+            "n_contexts": self.n_contexts,
+            "n_pages": self.n_pages,
+            "retrieve_page_contexts": self.retrieve_page_contexts,
+        }
+
+
+class LLMPresentationRetriever(PresentationRetriever):
+    """LLM-enhanced retriever that reranks results using structured relevance scoring"""
+
+    class RelevanceRanking(BaseModel):
+        class RelevanceEval(BaseModel):
+            document_id: int = Field(description="The id of the document")
+            relevance: int = Field(description="Relevance score from 1-10")
+            explanation: str = Field(
+                description="Short passage to clarify relevance score"
+            )
+
+        results: list[RelevanceEval]
+
+    llm: ChatOpenAI
+    top_k: int = 10
+
+    _parser: JsonOutputParser = JsonOutputParser(pydantic_object=RelevanceRanking)
+
+    rerank_prompt: PromptTemplate = PromptTemplate(
+        template=dedent(
+            """\
+            You are evaluating search results for presentation slides.
+            Rate how relevant each document is to the given query.
+            The relevance score should be from 1-10 where:
+            - 1-3: Low relevance, mostly unrelated content
+            - 4-6: Moderate relevance, some related points
+            - 7-8: High relevance, clearly addresses the query
+            - 9-10: Perfect match, directly answers the query
+
+            Evaluate ALL documents and provide brief explanations.
+
+            Presentations to evaluate:
+
+            {context_str}
+
+            Question: {query_str}
+
+            Output Formatting:
+            {format_instructions}
+            """
+        ),
+        input_variables=["context_str", "query_str", "format_instructions"],
+    )
+
+    def _format_presentations(self, presentations: List[Dict[str, Any]]) -> str:
+        """Format presentations for LLM evaluation"""
+        formatted = []
+        for i, pres in enumerate(presentations):
+            content = [f"Document {i+1}:"]
+            content.append(f"Title: {pres['pres_name']}")
+
+            if "contexts" in pres:
+                content.append("Content:")
+                content.extend(pres["contexts"])
+
+            formatted.append("\n".join(content))
+
+        return "\n\n".join(formatted)
+
+    def _rerank_results(
+        self,
+        results: List[Dict[str, Any]],
+        query: str,
+        run_manager: Optional[CallbackManagerForChainRun] = None,
+    ) -> List[Dict[str, Any]]:
+        """Rerank results using LLM relevance scoring"""
+        # Format input for LLM
+        context_str = self._format_presentations(results)
+
+        # Get LLM evaluation
+        chain = self.rerank_prompt | self.llm.with_structured_output(
+            self.RelevanceRanking
+        )
+
+        ranking = chain.invoke(
+            {
+                "context_str": context_str,
+                "query_str": query,
+                "format_instructions": self._parser.get_format_instructions(),
+            },
+        )
+
+        if len(ranking.results) != len(results):
+            logger.warning(
+                f"Reranker returned {len(ranking.results)} results when should {len(results)}"
+            )
+
+        # Sort results by relevance score
+        sorted_evals = sorted(
+            ranking.results,  # pyright: ignore[reportAttributeAccessIssue]
+            key=lambda x: x.relevance,
+            reverse=True,
+        )
+
+        # Reorder original results
+        reranked = [
+            results[eval.document_id - 1].copy()
+            for eval in sorted_evals[: self.top_k]
+            if eval.document_id - 1 < len(results)
+        ]
+
+        # Add LLM scoring info
+        for i in range(min(len(reranked), self.top_k)):
+            reranked[i]["llm_score"] = sorted_evals[i].relevance
+            reranked[i]["llm_explanation"] = sorted_evals[i].explanation
+
+        return reranked
+
+    def __call__(
+        self,
+        inputs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Run the chain"""
+        # Get base retrieval results
+        base_results = super().retrieve(query=inputs["question"])
+
+        # Rerank using LLM
+        if len(base_results["contexts"]) > 1:
+            reranked = self._rerank_results(
+                base_results["contexts"],
+                inputs["question"],
+            )
+        else:
+            reranked = base_results["contexts"]
+
+        # Combine contexts from reranked results
+        all_contexts = []
+        for result in reranked:
+            all_contexts.extend(result["contexts"])
+
+        return dict(
+            contexts=reranked,
+        )
+
+    async def _arerank_results(
+        self,
+        results: List[Dict[str, Any]],
+        query: str,
+        run_manager: Optional[CallbackManagerForChainRun] = None,
+    ) -> List[Dict[str, Any]]:
+        """Rerank results using LLM relevance scoring asynchronously"""
+        # Format input for LLM
+        context_str = self._format_presentations(results)
+
+        # Get LLM evaluation asynchronously
+        chain = self.rerank_prompt | self.llm.with_structured_output(
+            self.RelevanceRanking
+        )
+        ranking = await chain.ainvoke(
+            {
+                "context_str": context_str,
+                "query_str": query,
+                "format_instructions": self._parser.get_format_instructions(),
+            },
+        )
+
+        if len(ranking.results) != len(results):
+            logger.warning(
+                f"Reranker returned {len(ranking.results)} results when should {len(results)}"
+            )
+
+        # Sort results by relevance score
+        sorted_evals = sorted(
+            ranking.results,
+            key=lambda x: x.relevance,
+            reverse=True,
+        )
+
+        # Reorder original results
+        reranked = [
+            results[eval.document_id - 1].copy()
+            for eval in sorted_evals[: self.top_k]
+            if eval.document_id - 1 < len(results)
+        ]
+
+        # Add LLM scoring info
+        for i in range(min(len(reranked), self.top_k)):
+            reranked[i]["llm_score"] = sorted_evals[i].relevance
+            reranked[i]["llm_explanation"] = sorted_evals[i].explanation
+
+        return reranked
+
+    async def aretrieve(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 30,
+        max_distance: float = 2.0,
+        metadata_filter: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        """Retrieve presentations and format context asynchronously"""
+
+        base_results = await super().aretrieve(
+            query,
+            chunk_types,
+            n_results,
+            max_distance,
+            metadata_filter,
+        )
+
+        # Rerank using LLM asynchronously
+        if len(base_results["contexts"]) > 1:
+            reranked = await self._arerank_results(
+                base_results["contexts"],
+                query,
+            )
+        else:
+            reranked = base_results["contexts"]
+
+        return dict(contexts=reranked)
+
+    def get_log_params(self) -> Dict[str, Any]:
+        """Get parameters for MLflow logging including LLM specifics"""
+        params = super().get_log_params()
+        params.update(
+            {
+                "llm_model": self.llm.model_name,
+                "llm_temperature": self.llm.temperature,
+                "top_k": self.top_k,
+            }
+        )
+        return params
+
+
+RetrieverTypes = Union[PresentationRetriever, LLMPresentationRetriever]
+
+# def create_slides_database(
+#     presentations: List[PresentationAnalysis], collection_name: str = "slides"
+# ) -> ChromaSlideStore:
+#     """Create ChromaDB database from slides
+
+#     Args:
+#         presentations: List of analyzed presentations
+#         collection_name: Name for ChromaDB collection
+
+#     Returns:
+#         Configured ChromaSlideStore instance
+#     """
+#     from dotenv import load_dotenv
+
+#     load_dotenv()
+#     # Initialize store
+#     store = ChromaSlideStore(collection_name=collection_name)
+
+#     # Add slides from all presentations
+#     for presentation in presentations:
+#         print(f"Processing '{presentation.name}'...")
+#         for slide in presentation.slides:
+#             store.add_slide(slide)
+
+#     return store
+
+
+async def create_slides_database_async(
+    presentations: List[PresentationAnalysis],
+    collection_name: str = "slides",
+    embedding_model: Optional[Embeddings] = None,
+    max_concurrent_slides: int = 5,
 ) -> ChromaSlideStore:
-    """Create ChromaDB database from slides
+    """Create ChromaDB database from slides asynchronously
 
     Args:
         presentations: List of analyzed presentations
         collection_name: Name for ChromaDB collection
+        embedding_model: Optional embedding model to use
+        max_concurrent_slides: Maximum number of slides to process concurrently
 
     Returns:
         Configured ChromaSlideStore instance
     """
+    from asyncio import create_task, gather
+
+    # Initialize store
+    store = ChromaSlideStore(
+        collection_name=collection_name,
+        embedding_model=embedding_model or EmbeddingConfig().load_openai(),
+    )
+
+    for pres in presentations:
+        await store.process_presentation_async(
+            pres, max_concurrent=max_concurrent_slides
+        )
+
+    # # Process presentations concurrently
+    # tasks = [
+    #     create_task(
+    #         store.process_presentation_async(
+    #             presentation, max_concurrent=max_concurrent_slides
+    #         )
+    #     )
+    #     for presentation in presentations
+    # ]
+    #
+    # # Wait for all presentations to be processed
+    # await gather(*tasks)
+
+    return store
+
+
+def create_slides_database(
+    presentations: List[PresentationAnalysis],
+    collection_name: str = "slides",
+    embedding_model: Optional[Embeddings] = None,
+    max_concurrent_slides: int = 3,
+) -> ChromaSlideStore:
+    """Synchronous wrapper for create_slides_database_async
+
+    Args:
+        presentations: List of analyzed presentations
+        collection_name: Name for ChromaDB collection
+        embedding_model: Optional embedding model to use
+        max_concurrent_slides: Maximum number of slides to process concurrently
+
+    Returns:
+        Configured ChromaSlideStore instance
+    """
+    import asyncio
+
     from dotenv import load_dotenv
 
     load_dotenv()
-    # Initialize store
-    store = ChromaSlideStore(collection_name=collection_name)
 
-    # Add slides from all presentations
-    for presentation in presentations:
-        print(f"Processing '{presentation.name}'...")
-        for slide in presentation.slides:
-            store.add_slide(slide)
-
-    return store
+    return asyncio.run(
+        create_slides_database_async(
+            presentations=presentations,
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            max_concurrent_slides=max_concurrent_slides,
+        )
+    )

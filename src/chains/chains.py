@@ -5,13 +5,14 @@ from typing import Any, Dict, List, Optional, Union
 import fitz
 from langchain.callbacks.manager import CallbackManagerForChainRun
 from langchain.chains.base import Chain
-from langchain_openai import ChatOpenAI
+from langchain_core.callbacks import AsyncCallbackManagerForChainRun
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_openai import ChatOpenAI
 from PIL import Image
 
 from src.chains.chain_funcs import get_param_or_default
-from src.chains.prompts import SimpleVisionPrompt
+from src.chains.prompts import JsonH1AndGDPrompt, SimpleVisionPrompt
 from src.config.navigator import Navigator
 from src.processing import image2base64, page2image
 
@@ -210,7 +211,27 @@ class VisionAnalysisChain(Chain):
         self._llm = llm
         self._prompt = prompt
 
-    def _call(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def setup_chain(self, inputs: Dict[str, Any]):
+        current_prompt = get_param_or_default(inputs, "vision_prompt", self._prompt)
+
+        if isinstance(current_prompt, str):
+            current_prompt = SimpleVisionPrompt(current_prompt)
+
+        chain = (
+            current_prompt.template  # type: ignore
+            | self._llm
+            | dict(
+                llm_output=StrOutputParser(),
+                message=RunnablePassthrough(),  # AIMessage(content)
+            )
+        )
+        return chain, current_prompt
+
+    def _call(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[CallbackManagerForChainRun] = None,
+    ) -> Dict[str, Any]:
         """Process single image with the vision model
 
         Args:
@@ -221,29 +242,35 @@ class VisionAnalysisChain(Chain):
         Returns:
             Dictionary with `analysis` - model's output
         """
-        current_prompt = get_param_or_default(inputs, "vision_prompt", self._prompt)
+        chain, current_prompt = self.setup_chain(inputs)
 
-        if isinstance(current_prompt, str):
-            current_prompt = SimpleVisionPrompt(current_prompt)
-
-        chain = (
-            current_prompt.template
-            | self._llm
-            | dict(
-                llm_output=StrOutputParser(),
-                message=RunnablePassthrough(),  # AIMessage(content)
-            )
+        out = chain.invoke(
+            {"prompt": current_prompt, "image_base64": inputs["image_encoded"]}
         )
 
-        out = chain.invoke({
-            "prompt": current_prompt,
-            "image_base64": inputs["image_encoded"]
-        })
+        result = dict(
+            llm_output=out["llm_output"],  # type: ignore
+            parsed_output=current_prompt.parse(out["llm_output"]),  # type: ignore
+            response_metadata=out["message"].response_metadata,  # type: ignore
+            vision_prompt=current_prompt.prompt_text,
+        )
+        return result
+
+    async def _acall(
+        self,
+        inputs: Dict[str, Any],
+        run_manager: Optional[AsyncCallbackManagerForChainRun] = None,
+    ) -> Dict[str, Any]:
+        chain, current_prompt = self.setup_chain(inputs)
+
+        out = await chain.ainvoke(
+            {"prompt": current_prompt, "image_base64": inputs["image_encoded"]}
+        )
 
         result = dict(
-            llm_output=out["llm_output"],
-            parsed_output=current_prompt.parse(out["llm_output"]),
-            response_metadata=out["message"].response_metadata,
-            vision_prompt=current_prompt.prompt_text,
+            llm_output=out["llm_output"],  # type: ignore
+            parsed_output=current_prompt.parse(out["llm_output"]),  # type: ignore
+            response_metadata=out["message"].response_metadata,  # type: ignore
+            vision_prompt=current_prompt.prompt_text,  # type: ignore
         )
         return result

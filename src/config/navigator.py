@@ -1,9 +1,10 @@
-from pathlib import Path
-from dataclasses import dataclass
-from typing import List, Optional, Union
 import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Navigator:
@@ -22,6 +23,10 @@ class Navigator:
         self.raw = self.data / "raw"
         self.interim = self.data / "interim"
         self.processed = self.data / "processed"
+
+        self.eval = self.processed / "eval"
+        self.eval_artifacts = self.eval / "artifacts"
+        self.eval_runs = self.eval / "runs"
 
         # src paths
         self.src = self.root / "src"
@@ -43,12 +48,12 @@ class Navigator:
         return self.processed / filename
 
     def find_file_by_substr(
-            self,
-            substr: str,
-            extension: Optional[str] = None,
-            base_dir: Optional[Path] = None,
-            return_first: bool = True
-        ) -> Optional[Union[List[Path], Path]] :
+        self,
+        substr: str,
+        extension: Optional[str] = None,
+        base_dir: Optional[Path] = None,
+        return_first: bool = True,
+    ) -> Optional[Union[List[Path], Path]]:
         """
         Find file by substring.
 
@@ -63,10 +68,10 @@ class Navigator:
         if extension is None:
             extension = ""
 
-        search_pattern = fr"*{substr}*"
+        search_pattern = rf"*{substr}*"
 
         if base_dir is None:
-           base_dir = self.data
+            base_dir = self.data
 
         # find results matching pattern
         results = base_dir.rglob(search_pattern)
@@ -76,11 +81,12 @@ class Navigator:
 
         # sort by length so that the shortest is the first
         # thus we avoid picking modified file
-        results = list(sorted(
-            results,
-            key=lambda path: len(path.name),
-        ))
-
+        results = list(
+            sorted(
+                results,
+                key=lambda path: len(path.name),
+            )
+        )
 
         if extension is not None:
             results = [path for path in results if path.name.endswith(extension)]
