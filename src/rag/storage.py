@@ -927,6 +927,72 @@ class ChromaSlideStore:
 
         return stats_df, warnings
 
+    def copy_collection(
+        self,
+        target_collection_name: str,
+        batch_size: int = 100
+    ) -> "ChromaSlideStore":
+        """Copy contents of current collection to a new collection.
+        Updates document IDs to reflect new collection name.
+
+        Args:
+            target_collection_name: Name for the target collection
+            batch_size: Number of documents to process in each batch
+
+        Returns:
+            New ChromaSlideStore instance with copied data
+        """
+        # Create new store with same embeddings model
+        target_store = ChromaSlideStore(
+            collection_name=target_collection_name,
+            embedding_model=self._embeddings
+        )
+
+        # Get all documents from source collection
+        source_data = self._collection.get(include=["embeddings", "metadatas", "documents"])
+        total_docs = len(source_data["ids"])
+
+        # Process in batches
+        for i in range(0, total_docs, batch_size):
+            batch_end = min(i + batch_size, total_docs)
+
+            # Extract batch data
+            batch_ids = source_data["ids"][i:batch_end]
+            batch_embeddings = source_data["embeddings"][i:batch_end]
+            batch_documents = source_data["documents"][i:batch_end]
+            batch_metadatas = source_data["metadatas"][i:batch_end]
+
+            # Update IDs to use new collection name
+            new_batch_ids = []
+            for old_id in batch_ids:
+                # Replace old collection name with new one
+                # Format: collection_name__presentation_name__page_num__chunk_type
+                new_id = old_id.replace(
+                    f"{self._collection.name}__",
+                    f"{target_collection_name}__",
+                    1  # Replace only first occurrence
+                )
+                new_batch_ids.append(new_id)
+
+            # Add batch to target collection
+            target_store._collection.add(
+                ids=new_batch_ids,
+                embeddings=batch_embeddings,
+                documents=batch_documents,
+                metadatas=batch_metadatas
+            )
+
+            logger.info(
+                f"Copied batch {i//batch_size + 1}: "
+                f"documents {i} to {batch_end} of {total_docs}"
+            )
+
+        logger.info(
+            f"Successfully copied {total_docs} documents "
+            f"from '{self._collection.name}' to '{target_collection_name}'"
+        )
+        return target_store
+
 
 class PresentationRetriever(BaseModel):
     """Retriever for slide search that provides formatted context"""
