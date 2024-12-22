@@ -1,6 +1,5 @@
 [core]
     remote = yacloud
 ['remote "yacloud"']
-    url = s3://pres-rag-bucket/pres
+    url = s3://presentation-search/dvc
     endpointurl = https://storage.yandexcloud.net
-    allow_anonymous_login = true
