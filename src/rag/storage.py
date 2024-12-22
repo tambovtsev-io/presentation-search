@@ -451,55 +451,24 @@ class ChromaSlideStore:
         """Get embeddings for texts"""
         return self._embeddings.embed_documents(texts)
 
-    async def aquery_storage(
+    def _prepare_where_filter(
         self,
-        query: str,
-        n_results: int = 10,
-        where: Optional[Dict] = None,
-    ) -> QueryResult:
-        """Raw storage query without additional processing
+        chunk_types: Optional[List[str]] = None,
+        metadata_filter: Optional[Dict] = None,
+    ) -> Optional[Dict]:
+        """Prepare where filter for ChromaDB query"""
+        if not (chunk_types or metadata_filter):
+            return None
 
-        Args:
-            query: Query text to embed and search
-            n_results: Number of results to return
-            where: Optional metadata filters
-
-        Returns:
-            List of ScoredChunks sorted by similarity
-        """
-        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
-
-        # Get query embedding
-        query_embedding = await self._embeddings.aembed_query(q_storage)
-
-        # Query ChromaDB
-        result = self._collection.query(
-            query_embeddings=[query_embedding], n_results=n_results, where=where
-        )
-
-        ## Run ChromaDB query in executor to avoid blocking
-        # result = await asyncio.get_event_loop().run_in_executor(
-        #     None,
-        #     lambda: self._collection.query(
-        #         query_embeddings=[query_embedding],
-        #         n_results=n_results,
-        #         where=where
-        #     )
-        # )
-        return result
-
-    def query_storage(self, *args, **kwargs):
-        return asyncio.run(self.aquery_storage(*args, **kwargs))
+        where_filter = {}
+        if chunk_types:
+            where_filter["chunk_type"] = {"$in": chunk_types}
+        if metadata_filter:
+            where_filter.update(metadata_filter)
+        return where_filter
 
     def _process_chroma_results(self, results: QueryResult) -> List[ScoredChunk]:
-        """Convert ChromaDB results to list of (Document, score) tuples
-
-        Args:
-            results: Raw ChromaDB query results
-
-        Returns:
-            List of tuples containing LangChain document and similarity score
-        """
+        """Convert ChromaDB results to list of scored chunks"""
         scored_chunks = []
         for i in range(len(results["ids"][0])):
             doc = Document(
@@ -511,99 +480,40 @@ class ChromaSlideStore:
 
         return sorted(scored_chunks, key=lambda chunk: chunk.score)
 
-    async def asearch_query(
+    def _process_search_results(
         self,
+        chunks: List[ScoredChunk],
         query: str,
-        chunk_types: Optional[List[str]] = None,
         n_results: int = 10,
         max_score: float = 1.0,
-        metadata_filter: Optional[Dict] = None,
+        metadata: Optional[Dict] = None,
     ) -> SearchResult:
-        """Search slides based on query with flexible filtering
-
-        Args:
-            query: Search query text
-            chunk_types: Optional list of chunk types to search in
-                (e.g. ["conclusions_and_insights", "topic_overview"])
-            n_results: Number of results to return
-            max_score: Maximum distance threshold
-            metadata_filter: Additional metadata filters
-
-        Returns:
-            SearchResult with filtered chunks and metadata
-        """
-        # Prepare where clause
-        # Add filters only if they are specified
-        where_filter = None
-        if chunk_types or metadata_filter:
-            where_filter = {}
-            if chunk_types:
-                where_filter["chunk_type"] = {"$in": chunk_types}
-            if metadata_filter:
-                where_filter.update(metadata_filter)
-
-        # Query with embeddings
-        results = self.query_storage(
-            query=query,
-            n_results=n_results,  # Get more to filter by score
-            where=where_filter,
-        )
-
-        # Convert results to scored chunks
-        chunks = self._process_chroma_results(results)
-
-        # Filter by score and limit results
+        """Process scored chunks into search results"""
         filtered_chunks = [c for c in chunks if c.score <= max_score][:n_results]
+
+        result_metadata = dict(
+            query=query,
+            total_chunks=len(chunks),
+            filtered_chunks=len(filtered_chunks),
+        )
+        if metadata:
+            result_metadata.update(metadata)
 
         return SearchResult(
             chunks=filtered_chunks,
-            metadata=dict(
-                query=query,
-                chunk_types=chunk_types,
-                total_chunks=len(chunks),
-                filtered_chunks=len(filtered_chunks),
-                metadata_filter=metadata_filter,
-            ),
+            metadata=result_metadata,
         )
 
-    def search_query(self, *args, **kwargs):
-        return asyncio.run(self.asearch_query(*args, **kwargs))
-
-    async def asearch_query_pages(
+    def _process_page_results(
         self,
-        query: str,
-        chunk_types: Optional[List[str]] = None,
+        search_results: SearchResult,
         n_results: int = 4,
-        max_distance: float = 2.0,
-        metadata_filter: Optional[Dict] = None,
     ) -> List[SearchResultPage]:
-        """Search slides and return full context for each match
-
-        Args:
-            query: Search query text
-            chunk_types: Optional list of chunk types to search in
-            n_results: Number of results to return
-            max_distance: Maximum cosine distance threshold
-            metadata_filter: Additional metadata filters
-
-        Returns:
-            List of search results with full slide context, deduplicated by slide_id
-        """
-        # First perform regular search
-        search_results = await self.asearch_query(
-            query=query,
-            chunk_types=chunk_types,
-            n_results=n_results,  # * 3,  # Get more to ensure different pages
-            max_score=max_distance,
-            metadata_filter=metadata_filter,
-        )
-
+        """Process search results into page results"""
         # Group chunks by slide_id while preserving order
         slides_map = OrderedDict()  # type: OrderedDict[str, List[ScoredChunk]]
 
-        # Process chunks in order of increasing distance
         for chunk in search_results.chunks:
-            # Add chunk to slide group if slide not yet processed
             if chunk.slide_id not in slides_map:
                 slides_map[chunk.slide_id] = []
             slides_map[chunk.slide_id].append(chunk)
@@ -611,26 +521,19 @@ class ChromaSlideStore:
         # Process each slide's chunks
         page_results = []
         for slide_id, chunks in slides_map.items():
-            # Sort chunks by distance to get the best match
             chunks.sort(key=lambda x: x.score)
             best_chunk = chunks[0]
 
-            # Get all chunks for this slide
             slide_chunks = self._get_full_slide(slide_id)
-
-            # Create distance map for all chunk types
             chunk_distances = {chunk_type: None for chunk_type in slide_chunks.keys()}
 
-            # Update distances for matched chunks
             for chunk in chunks:
                 chunk_distances[chunk.chunk_type] = chunk.score
 
-            # Create result with context
             result = SearchResultPage(
                 matched_chunk=best_chunk,
                 slide_chunks=slide_chunks,
                 chunk_distances=chunk_distances,
-                # NOTE: This is only for testing, can be removed
                 metadata=dict(
                     slide_id=slide_id,
                     best_distance=best_chunk.score,
@@ -640,13 +543,125 @@ class ChromaSlideStore:
             )
             page_results.append(result)
 
-            # if len(page_results) == n_results:
-            #     break
+        return page_results[:n_results] if n_results > 0 else page_results
 
-        return page_results  # [:n_results]
+    def _process_presentation_results(
+        self,
+        page_results: List[SearchResultPage],
+        query: str,
+        scorer: BaseScorer = HyperbolicScorer(),
+        metadata: Optional[Dict] = None,
+    ) -> ScoredPresentations:
+        """Process page results into presentation results"""
+        presentations_map = (
+            OrderedDict()
+        )  # type: OrderedDict[str, List[SearchResultPage]]
 
-    def search_query_pages(self, *args, **kwargs):
-        return asyncio.run(self.asearch_query_pages(*args, **kwargs))
+        for result in page_results:
+            pres_name = result.pdf_name
+            if pres_name not in presentations_map:
+                presentations_map[pres_name] = []
+            presentations_map[pres_name].append(result)
+
+        presentation_results = []
+        for pres_name, slides in presentations_map.items():
+            pres_metadata = dict(
+                presentation_name=pres_name,
+                total_slides=len(slides),
+                query=query,
+            )
+            if metadata:
+                pres_metadata.update(metadata)
+
+            pres_result = SearchResultPresentation(
+                slides=slides,
+                metadata=pres_metadata,
+            )
+            presentation_results.append(pres_result)
+
+        return ScoredPresentations(presentations=presentation_results, scorer=scorer)
+
+    async def aquery_storage(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 10,
+        metadata_filter: Optional[Dict] = None,
+    ) -> QueryResult:
+        """Raw async storage query"""
+        # Prepare query
+        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
+        query_embedding = await self._embeddings.aembed_query(q_storage)
+
+        # Prepare where filter
+        where = self._prepare_where_filter(chunk_types, metadata_filter)
+
+        return self._collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n_results,
+            where=where,
+        )
+
+    def query_storage(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 10,
+        metadata_filter: Optional[Dict] = None,
+    ) -> QueryResult:
+        """Raw sync storage query"""
+        # Prepare query
+        q_storage = self.query_preprocessor(query) if self.query_preprocessor else query
+        query_embedding = self._embeddings.embed_query(q_storage)
+
+        # Prepare where filter
+        where = self._prepare_where_filter(chunk_types, metadata_filter)
+
+        return self._collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n_results,
+            where=where,
+        )
+
+    async def asearch_query_pages(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 4,
+        max_distance: float = 2.0,
+        metadata_filter: Optional[Dict] = None,
+    ) -> List[SearchResultPage]:
+        """Async search for slides with full context"""
+        # Execute query with filters
+        raw_results = await self.aquery_storage(
+            query, chunk_types, n_results, metadata_filter
+        )
+
+        # Process results through pipeline
+        chunks = self._process_chroma_results(raw_results)
+        search_results = self._process_search_results(
+            chunks, query, n_results, max_distance
+        )
+        return self._process_page_results(search_results, n_results)
+
+    def search_query_pages(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 4,
+        max_distance: float = 2.0,
+        metadata_filter: Optional[Dict] = None,
+    ) -> List[SearchResultPage]:
+        """Sync search for slides with full context"""
+        # Execute query with filters
+        raw_results = self.query_storage(query, chunk_types, n_results, metadata_filter)
+
+        # Process results through pipeline
+        chunks = self._process_chroma_results(raw_results)
+        search_results = self._process_search_results(
+            chunks, query, n_results, max_distance
+        )
+        return self._process_page_results(search_results, n_results)
 
     async def asearch_query_presentations(
         self,
@@ -657,67 +672,40 @@ class ChromaSlideStore:
         max_distance: float = 2.0,
         metadata_filter: Optional[Dict] = None,
     ) -> ScoredPresentations:
-        """Search presentations based on query and return grouped results
-
-        Args:
-            query: Search query text
-            chunk_types: Optional list of chunk types to search in
-            n_results: Number of presentations to return
-            scorer: Scoring object
-            max_distance: Maximum cosine distance threshold
-            metadata_filter: Additional metadata filters
-
-        Returns:
-            List of presentations with their matching slides, sorted by best match
-        """
-        # Get initial search results with enough buffer for filtering
-        search_results = await self.asearch_query_pages(
-            query=query,
-            chunk_types=chunk_types,
-            n_results=n_results,
-            max_distance=max_distance,
-            metadata_filter=metadata_filter,
+        """Async search for presentations"""
+        # Execute query with filters
+        raw_results = await self.aquery_storage(
+            query, chunk_types, n_results, metadata_filter
         )
 
-        # Group results by presentation
-        presentations_map = (
-            OrderedDict()
-        )  # type: OrderedDict[str, List[SearchResultPage]]
+        # Process results through pipeline
+        chunks = self._process_chroma_results(raw_results)
+        search_results = self._process_search_results(
+            chunks, query, n_results, max_distance
+        )
+        page_results = self._process_page_results(search_results, n_results)
+        return self._process_presentation_results(page_results, query, scorer)
 
-        for result in search_results:
-            # Get presentation name from pdf_path
-            pres_name = result.pdf_name
+    def search_query_presentations(
+        self,
+        query: str,
+        chunk_types: Optional[List[str]] = None,
+        n_results: int = 30,
+        scorer: BaseScorer = HyperbolicScorer(),
+        max_distance: float = 2.0,
+        metadata_filter: Optional[Dict] = None,
+    ) -> ScoredPresentations:
+        """Sync search for presentations"""
+        # Execute query with filters
+        raw_results = self.query_storage(query, chunk_types, n_results, metadata_filter)
 
-            if pres_name not in presentations_map:
-                presentations_map[pres_name] = []
-
-            # Add result if we haven't reached the per-presentation limit
-            presentations_map[pres_name].append(result)
-
-        # Convert to SearchResultPresentation objects
-        presentation_results = []
-
-        for pres_name, slides in presentations_map.items():
-            # Create presentation result
-            pres_result = SearchResultPresentation(
-                slides=slides,
-                # NOTE: This is only for testing. Can be removed
-                metadata=dict(
-                    presentation_name=pres_name,
-                    total_slides=len(slides),
-                    query=query,
-                    chunk_types=chunk_types,
-                ),
-            )
-            presentation_results.append(pres_result)
-
-            # if len(presentation_results) == n_results:
-            #     break
-
-        return ScoredPresentations(presentations=presentation_results, scorer=scorer)
-
-    def search_query_presentations(self, *args, **kwargs):
-        return asyncio.run(self.asearch_query_presentations(*args, **kwargs))
+        # Process results through pipeline
+        chunks = self._process_chroma_results(raw_results)
+        search_results = self._process_search_results(
+            chunks, query, n_results, max_distance
+        )
+        page_results = self._process_page_results(search_results, n_results)
+        return self._process_presentation_results(page_results, query, scorer)
 
     def get_by_metadata(
         self, metadata_filter: Dict, n_results: Optional[int] = None
