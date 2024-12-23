@@ -6,6 +6,7 @@ from src.chains.pipelines import (
 )
 
 from src.chains.chains import (
+    FindPdfChain,
     LoadPageChain,
     Page2ImageChain,
     ImageEncodeChain,
