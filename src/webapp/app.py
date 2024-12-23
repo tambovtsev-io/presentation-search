@@ -113,7 +113,7 @@ class RagInterface:
         self.output_height = 500
 
     def rate_response(self, score: float):
-        best_threshold = 0.37
+        best_threshold = 0.42
         ok_threshold = 0.6
         if score < best_threshold:
             return "👍"  # "💯"
@@ -122,13 +122,20 @@ class RagInterface:
         return "👎"
 
     def calculate_params(self, search_depth: int):
-        return search_depth * 15
+        return {1: 30, 2: 50, 3: 70, 4: 100, 5: 150}.get(search_depth, 70)
 
     def launch(self, **kwargs):
         """Build Gradio interface layout"""
 
         with gr.Blocks() as app:
-            gr.Markdown("# Presentation Search")
+            # fmt: off
+            gr.Markdown(dedent(
+            """\
+            # Presentation Search
+            [Link to benchmark](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
+            """)
+            )
+            # fmt: on
 
             with gr.Row():
                 # Input components
