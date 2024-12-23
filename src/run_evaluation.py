@@ -163,7 +163,7 @@ class EvaluationCLI:
     def mlflow(
         self,
         retriever: str = "basic",
-        n_query_results: int = 50,
+        n_query_results: int = 70,
         n_contexts: int = -1,
         n_pages: int = -1,
         preprocessing: str = "regex",

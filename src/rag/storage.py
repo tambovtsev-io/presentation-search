@@ -668,7 +668,7 @@ class ChromaSlideStore:
         query: str,
         chunk_types: Optional[List[str]] = None,
         n_results: int = 30,
-        scorer: BaseScorer = HyperbolicScorer(),
+        scorer: BaseScorer = MinScorer(),
         max_distance: float = 2.0,
         metadata_filter: Optional[Dict] = None,
     ) -> ScoredPresentations:
@@ -691,7 +691,7 @@ class ChromaSlideStore:
         query: str,
         chunk_types: Optional[List[str]] = None,
         n_results: int = 30,
-        scorer: BaseScorer = HyperbolicScorer(),
+        scorer: BaseScorer = MinScorer(),
         max_distance: float = 2.0,
         metadata_filter: Optional[Dict] = None,
     ) -> ScoredPresentations:
@@ -928,9 +928,7 @@ class ChromaSlideStore:
         return stats_df, warnings
 
     def copy_collection(
-        self,
-        target_collection_name: str,
-        batch_size: int = 100
+        self, target_collection_name: str, batch_size: int = 100
     ) -> "ChromaSlideStore":
         """Copy contents of current collection to a new collection.
         Updates document IDs to reflect new collection name.
@@ -944,12 +942,13 @@ class ChromaSlideStore:
         """
         # Create new store with same embeddings model
         target_store = ChromaSlideStore(
-            collection_name=target_collection_name,
-            embedding_model=self._embeddings
+            collection_name=target_collection_name, embedding_model=self._embeddings
         )
 
         # Get all documents from source collection
-        source_data = self._collection.get(include=["embeddings", "metadatas", "documents"])
+        source_data = self._collection.get(
+            include=["embeddings", "metadatas", "documents"]
+        )
         total_docs = len(source_data["ids"])
 
         # Process in batches
@@ -970,7 +969,7 @@ class ChromaSlideStore:
                 new_id = old_id.replace(
                     f"{self._collection.name}__",
                     f"{target_collection_name}__",
-                    1  # Replace only first occurrence
+                    1,  # Replace only first occurrence
                 )
                 new_batch_ids.append(new_id)
 
@@ -979,7 +978,7 @@ class ChromaSlideStore:
                 ids=new_batch_ids,
                 embeddings=batch_embeddings,
                 documents=batch_documents,
-                metadatas=batch_metadatas
+                metadatas=batch_metadatas,
             )
 
             logger.info(
