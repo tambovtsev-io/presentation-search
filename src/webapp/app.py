@@ -132,7 +132,8 @@ class RagInterface:
             gr.Markdown(dedent(
             """\
             # Presentation Search
-            [Link to benchmark](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
+            - Presentations for search are available [at google-drive](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
+            - List of possible questions for testing available [at google-sheets](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
             """)
             )
             # fmt: on
@@ -251,7 +252,7 @@ def main():
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--collection", default="pres0", help="ChromaDB collection name"
+        "--collection", default="pres_69", help="ChromaDB collection name"
     )
     parser.add_argument("--host", default="0.0.0.0", help="Host to run on")
     parser.add_argument("--port", type=int, default=7860, help="Port to run on")
