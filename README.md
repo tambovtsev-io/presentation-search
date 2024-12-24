@@ -6,7 +6,7 @@
 
 Идея проекта: с помощью image2text моделей составить описания слайдов, которые учитывают текстовое и визуальное содержимое. А затем искать по ним с помощью векторной базы данных.
 
-Автор: Илья Тамбовцев
+Автор: Илья Тамбовцев [t.me/ilchos](https://t.me/ilchos)
 
 Попробовать можно тут: [huggingface/presentation-search](https://huggingface.co/spaces/redmelonberry/presentation-search)
 
@@ -105,7 +105,7 @@ poetry run python -m src.run_json2chroma convert \
 poetry run python -m src.webapp.app --collection pres1 --host 0.0.0.0 --port 7860
 ```
 
-### Бенчмарк
+### 4. Бенчмарк
 #### MLFlow
 Запустите MLFlow для отображения результатов:
 
