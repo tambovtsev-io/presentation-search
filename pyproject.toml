@@ -33,6 +33,7 @@ fire = "^0.7.0"
 nltk = "^3.9.1"
 gspread-pandas = "^3.3.0"
 pymupdf = "^1.25.1"
+llama-parse = "^0.5.18"
 
 
 [build-system]
