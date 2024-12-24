@@ -50,6 +50,9 @@ LANGCHAIN_TRACING_V2="true"
 
 # Configure custom benchmark spreadsheet
 BENCHMARK_SPREADSHEET_ID="1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4"
+
+# Configure ChromaDB storage name for webapp
+CHROMA_COLLECTION_NAME="pres_69"
 ```
 
 ## Использование
@@ -152,7 +155,7 @@ poetry run python -m src.run_evaluation mlflow \
 ![llm-relevance](docs/img/MLFlow_LLM-Eval.png)
 
 #### Langsmith
-**Здесь будет гайд как запустить бенчмаркинг**
+**Здесь будет гайд как запустить бенчмаркинг через LangSmith**
 
 
 ## Ноутбуки
@@ -261,18 +264,12 @@ presentation-rag/
 ## Дополнительная документация
 
 - [System Design Document](docs/system_design_doc.md)
-- [Data Version Control Guide](docs/workflow/data_version_control.md)
-- [API Documentation](docs/api.md)
+- [Гайд по DVC](docs/workflow/data_version_control.md)
+- [Гайд по разрешениям картинок](docs/workflow/resolutions.md)
 
 ## Ссылки
 
 ### Данные
 - [Гугл-диск с презентациями](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
 - [Гугл-таблица с бенчмарком](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
-  - [Результаты бенчмарка в Langsmith]() # TODO
 
-### Проект
-- [Jira Board](https://jira.raftds.com/secure/RapidBoard.jspa?rapidView=98&projectKey=RMI&selectedIssue=RMI-40)
-- [Confluence Wiki](https://confluence.raftds.com/display/RMI1/Raft+ML+internship+1)
-- [GitLab Repository](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag)
-- [Google Drive - Presentations](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
