@@ -113,7 +113,7 @@ class RagInterface:
         self.output_height = 500
 
     def rate_response(self, score: float):
-        best_threshold = 0.42
+        best_threshold = 0.48
         ok_threshold = 0.6
         if score < best_threshold:
             return "👍"  # "💯"
@@ -133,7 +133,7 @@ class RagInterface:
             """\
             # Presentation Search
             - Presentations for search are available [at google-drive](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
-            - List of possible questions for testing available [at google-sheets](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
+            - List of possible questions for testing is available [at google-sheets](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
             """)
             )
             # fmt: on
@@ -158,6 +158,23 @@ class RagInterface:
                         )
 
                         search_btn = gr.Button("Search", size="lg", scale=3)
+
+            examples = gr.Examples(
+                examples=[
+                    "Презентация с картинкой единорога",
+                    "В какой презентации был график с экономическими событиями?",
+                    "Презентация с мемом про Дональда Трампа",
+                    "В какой презентации были красные круги с объемами рекламы?",
+                    "В презентации было сравнение размеров Гренландии и Африки",
+                    "Презентация в которой показывали карту грузовых маршрутов для поездов",
+                    "В какой презентации были скриншоты игры?",
+                    "Презентация с примерами генерации картинок моделью Kandinsky",
+                    "Карта сбоев Mail.ru"
+                    "Картинка кота с подписью Боюсь",
+                    "Презентации с котами",
+                ],
+                inputs=[query],
+            )
 
             # Adding results functionality
             results = gr.State([])
@@ -227,6 +244,7 @@ class RagInterface:
                 inputs={query, search_depth},
                 outputs=result_components,
             )
+
 
         app.launch(ssr_mode=False, **kwargs)
 
