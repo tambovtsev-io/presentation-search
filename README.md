@@ -159,20 +159,20 @@ poetry run python -m src.run_evaluation mlflow \
 
 **Вкатываемся в Document Understanding**
 
-1. [Ноутбук с примерами описаний слайдов](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/weird-slides/weird_slides.ipynb)
-2. [Ноутбук с примерами LLamaParse](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/weird-slides/llamaparse.ipynb)
-3. [Ноутбук с ресерчем про разрешения картинки](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/weird-slides/lowering_img_quality.ipynb)
-4. [Ноутбук с разрешениями презентаций и расчетом цен](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/weird-slides/lowering_img_quality.ipynb)
+1. [Ноутбук с примерами описаний слайдов](notebooks/weird-slides/weird_slides.ipynb)
+2. [Ноутбук с примерами LLamaParse](notebooks/weird-slides/llamaparse.ipynb)
+3. [Ноутбук с ресерчем про разрешения картинки](notebooks/weird-slides/lowering_img_quality.ipynb)
+4. [Ноутбук с разрешениями презентаций и расчетом цен](notebooks/data_description/count_descriptions_costs.ipynb)
 
 **Описания презентаций**
 
-5. [Ноутбук с примерами форматированных описаний](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/prompts/testing_prompts.ipynb)
-6. [Ноутбук с распределением количества токенов в полученных описаниях](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/a71ffa99b9a223440210918f5bbcfff91aa040a5/notebooks/data_description/count_descriptions.ipynb)
+5. [Ноутбук с примерами форматированных описаний](notebooks/prompts/testing_prompts.ipynb)
+6. [Ноутбук с распределением количества токенов в полученных описаниях](notebooks/data_description/count_descriptions_metrics.ipynb)
 
 **RAG**
 
-7. [Ноутбук с примерами запросов к RAG](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/ee6268ca210a9721d2f247251349aca43517f68d/notebooks/rag/chroma_queries.ipynb)
-8. [Ноутбук про реранкинг](https://gitlab.raftds.com/ilia.tambovtsev/presentation-rag/-/blob/514f171fb260faec3f2d2580fa78fe9313fc17ee/notebooks/rag/chroma_metric_research.ipynb)
+7. [Ноутбук с примерами запросов к RAG](notebooks/rag/chroma_queries.ipynb)
+8. [Ноутбук про реранкинг](notebooks/rag/chroma_metric_research.ipynb)
 
 ## Структура проекта
 
