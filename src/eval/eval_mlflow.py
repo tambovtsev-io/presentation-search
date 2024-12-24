@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Protocol, Union
 
 import mlflow
 import mlflow.config
+import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
@@ -96,6 +97,25 @@ class PresentationFound(BaseMetric):
         )
 
 
+class PresentationIdx(BaseMetric):
+    async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
+        found_pres_names = [c["pres_name"] for c in run_output["contexts"]]
+        score = float("nan")
+        for i, pres in enumerate(found_pres_names):
+            if pres == ground_truth["pres_name"]:
+                score = float(i + 1)
+
+        return MetricResult(
+            name=self.name,
+            score=score,
+            explanation=(
+                f"Presentation was found at position {score}"
+                if score != float("nan")
+                else "Presentation was not found"
+            ),
+        )
+
+
 class PageMatch(BaseMetric):
     """Check if best page matches ground truth"""
 
@@ -169,8 +189,6 @@ class PresentationCount(BaseMetric):
 
 
 class BestChunkMatch(BaseMetric):
-    """Count number of retrieved presentations"""
-
     async def acalculate(self, run_output: Dict, ground_truth: Dict) -> MetricResult:
         """Count presentations in retrieved results"""
         best_pres = run_output["contexts"][0]
@@ -293,6 +311,7 @@ class MetricsRegistry:
     _metrics = {
         "presentationmatch": PresentationMatch,
         "presentationfound": PresentationFound,
+        "presentationidx": PresentationIdx,
         "pagematch": PageMatch,
         "pagefound": PageFound,
         "presentationcount": PresentationCount,
@@ -303,7 +322,6 @@ class MetricsRegistry:
     @classmethod
     def create(cls, metric_name: str, **kwargs) -> BaseMetric:
         """Create metric instance by name"""
-        # __import__('pdb').set_trace()
         metric_cls = cls._metrics.get(metric_name.lower())
         if metric_cls is None:
             raise ValueError(f"Unknown metric: {metric_name}")
@@ -316,6 +334,7 @@ class MetricPresets:
     BASIC = [
         "presentationmatch",
         "presentationfound",
+        "presentationidx",
         "pagematch",
         "pagefound",
         "presentationcount",
@@ -618,15 +637,16 @@ class RAGEvaluatorMlflow:
             # Initialize retriever
             retriever = self.config.get_retriever_with_scorer(scorer)
 
+            # Get preprocessor id
+            preprocessor_id = (
+                retriever.storage.query_preprocessor.id
+                if retriever.storage.query_preprocessor
+                else "None"
+            )
             with mlflow.start_run(
-                run_name=f"scorer_{scorer.id}__retriever_{retriever.id}"
+                run_name=f"scorer_{scorer.id}__retriever_{retriever.id}__preprocessor_{preprocessor_id}"
             ):
                 # Log preprocessor
-                preprocessor_id = (
-                    retriever.storage.query_preprocessor.id
-                    if retriever.storage.query_preprocessor
-                    else "None"
-                )
                 mlflow.log_params({"preprocessing": preprocessor_id})
                 self._logger.info(f"Using preprocessor: {preprocessor_id}")
 
@@ -696,7 +716,7 @@ class RAGEvaluatorMlflow:
                 # Log metrics
                 for name, values in metric_values.items():
                     if values:
-                        mean_value = sum(values) / len(values)
+                        mean_value = np.nanmean(values)
                         mlflow.log_metric(f"mean_{name}", mean_value)
                         mlflow.log_metric(f"n_questions", len(questions_df))
                         mlflow.log_metric(f"error_rate", n_errors / len(questions_df))
