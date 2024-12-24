@@ -8,6 +8,8 @@
 
 Автор: Илья Тамбовцев
 
+Попробовать можно тут: [huggingface/presentation-search](https://huggingface.co/spaces/redmelonberry/presentation-search)
+
 ## Функционал
 
 - Извлечение структурированной информации из слайдов презентаций с помощью GPT-4V
