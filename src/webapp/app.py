@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from pathlib import Path
 from textwrap import dedent
 from typing import Dict, List, Optional, Tuple
@@ -245,7 +246,6 @@ class RagInterface:
                 outputs=result_components,
             )
 
-
         app.launch(ssr_mode=False, **kwargs)
 
 
@@ -277,8 +277,13 @@ def main():
     parser.add_argument("--share", action="store_true", help="Create public link")
     args = parser.parse_args()
 
+    # Load collection from dotenv if not specified
+    collection = os.getenv("CHROMA_COLLECTION_NAME") or args.collection
+
     # Initialize store
-    store = ChromaSlideStore(collection_name=args.collection)
+    store = ChromaSlideStore(
+        collection_name=collection
+    )  # pyright: ignore[reportArgumentType]
 
     # Run app
     run_app(store, server_name=args.host, server_port=args.port, share=args.share)
