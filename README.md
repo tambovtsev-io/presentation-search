@@ -10,15 +10,16 @@
 
 Попробовать можно тут: [huggingface/presentation-search](https://huggingface.co/spaces/redmelonberry/presentation-search)
 
+Видео с демонстрацией: 
+
+[![Video Demo](http://img.youtube.com/vi/5LPl3MBXxzo/0.jpg)](http://www.youtube.com/watch?v=5LPl3MBXxzo "Click to Watch on Youtube")
+
 ## Функционал
 
 - Извлечение структурированной информации из слайдов презентаций с помощью GPT-4-Vision
 - Векторное хранилище описаний слайдов на базе ChromaDB
 - Семантический поиск по презентациям с учетом текстового и визуального контента
 - Веб-интерфейс для удобного доступа к функциональности поиска
-
-## Демонстрация
-[![Video Demo](http://img.youtube.com/vi/5LPl3MBXxzo/0.jpg)](http://www.youtube.com/watch?v=5LPl3MBXxzo "Click to Watch on Youtube")
 
 ## Курс "Введение в LLM"
 ### Описание
