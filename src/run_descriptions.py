@@ -92,7 +92,7 @@ class PipelineCLI:
     def process(
         self,
         *pdf_paths: str,
-        provider: str = "vsegpt",
+        provider: str = "openai",
         model_name: Optional[str] = None,
         max_concurrent: int = 3,
         dpi: int = 72,
