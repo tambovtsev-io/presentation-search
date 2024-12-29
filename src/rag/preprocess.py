@@ -54,7 +54,7 @@ class RegexQueryPreprocessor:
             ],
             "slide_patterns": [
                 self.QueryPattern(
-                    r"(?:на )?слайд(?:е|ы)? (?:с|был[аи]?|про|где) ",
+                    r"(?:на )?слайд(?:е|ы)? (?:с|был[аи]?|про|где|со)? ",
                 ),
                 # self.QueryPattern(
                 #     r"слайд(?:ы)? с заголовк(?:ом|ами) ",
