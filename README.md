@@ -364,7 +364,7 @@ Regex-препроцессинг - убираются часто-повторя�
 - [Ноутбук с примерами описаний слайдов](notebooks/weird-slides/weird_slides.ipynb)
 - [Ноутбук с примерами LLamaParse](notebooks/weird-slides/llamaparse.ipynb)
 - [Ноутбук с ресерчем про разрешения картинки](notebooks/weird-slides/lowering_img_quality.ipynb)
-- [Ноутбук с разрешениями презентаций и расчетом цен](notebooks/data_description/count_descriptions_costs.ipynb)
+- [Ноутбук с разрешениями презентаций и расчетом цен](notebooks/data_description/count_presentations_costs.ipynb)
 
 *Описания презентаций*
 
