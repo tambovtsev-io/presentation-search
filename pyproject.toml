@@ -32,6 +32,9 @@ gspread-pandas = "^3.3.0"
 pymupdf = "^1.25.1"
 llama-parse = "^0.5.18"
 pillow = "^11.0.0"
+dash = "^2.18.2"
+plotly = "^5.24.1"
+dash-bootstrap-components = "^1.6.0"
 
 
 [build-system]
