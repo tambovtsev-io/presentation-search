@@ -657,6 +657,7 @@ class RAGEvaluatorMlflow:
                 self._logger.debug("Logged config parameters")
 
                 # Log scorer parameters
+                mlflow.log_params(dict(scorer_type=scorer.id))
                 mlflow.log_params(
                     {f"scorer_{k}": v for k, v in scorer.model_dump().items()}
                 )
