@@ -30,7 +30,7 @@ class PresentationMetrics:
         return dict(
             image_count=len(page.get_images()),
             n_words=len(page.get_text().strip().split()),
-            size=(page.rect.width, page.rect.height)
+            size=(page.rect.width, page.rect.height),
         )
 
     def get_all_metrics(self) -> List[Dict]:
@@ -43,10 +43,7 @@ class PresentationMetrics:
         metrics = []
         for page_num in range(len(self.doc)):
             page_metrics = self.get_page_metrics(page_num)
-            page_metrics.update(dict(
-                page_num=page_num,
-                pdf_path=str(self.pdf_path)
-            ))
+            page_metrics.update(dict(page_num=page_num, pdf_path=str(self.pdf_path)))
             metrics.append(page_metrics)
         return metrics
 
@@ -108,21 +105,26 @@ def parse_pdf_directory(
 
             # Handle varying sizes
             unique_sizes = set(page_sizes)
-            pdf_info["varying_sizes"] = str(unique_sizes) if len(unique_sizes) > 1 else ""
+            pdf_info["varying_sizes"] = (
+                str(unique_sizes) if len(unique_sizes) > 1 else ""
+            )
 
         except Exception as e:
-            pdf_info.update(dict(
-                num_pages=0,
-                total_images=0,
-                total_text_length=0,
-                page_width=0,
-                page_height=0,
-                varying_sizes=""
-            ))
+            pdf_info.update(
+                dict(
+                    num_pages=0,
+                    total_images=0,
+                    total_text_length=0,
+                    page_width=0,
+                    page_height=0,
+                    varying_sizes="",
+                )
+            )
 
         pdf_files.append(pdf_info)
 
     return pd.DataFrame(pdf_files)
+
 
 def get_pres_analysis_df(base: Path = Navigator().interim) -> pd.DataFrame:
     descriptions: List[Dict] = []
@@ -143,8 +145,12 @@ def get_pres_analysis_df(base: Path = Navigator().interim) -> pd.DataFrame:
                     conclusions_and_insights=slide.parsed_output.general_description.conclusions_and_insights,
                     layout_and_composition=slide.parsed_output.general_description.layout_and_composition,
                     # Tokens
-                    completion_tokens=slide.response_metadata["token_usage"]["completion_tokens"],
-                    prompt_tokens=slide.response_metadata["token_usage"]["prompt_tokens"],
+                    completion_tokens=slide.response_metadata["token_usage"][
+                        "completion_tokens"
+                    ],
+                    prompt_tokens=slide.response_metadata["token_usage"][
+                        "prompt_tokens"
+                    ],
                 )
             )
     df = pd.DataFrame(descriptions)
