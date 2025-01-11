@@ -4,28 +4,20 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 from textwrap import dedent
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
-from uuid import uuid4
 
 import chromadb
-import numpy as np
 import pandas as pd
 from chromadb.api.types import QueryResult
 from chromadb.config import Settings
-from datasets.utils import metadata
-from langchain.chains.base import Chain
 from langchain.schema import Document
 from langchain_core.callbacks.manager import CallbackManagerForChainRun
 from langchain_core.embeddings import Embeddings
-from langchain_core.language_models import BaseLanguageModel
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
-from langchain_openai.embeddings import OpenAIEmbeddings
-from pandas.core.algorithms import rank
-from pydantic import BaseModel, ConfigDict, Field, conbytes
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.chains import PresentationAnalysis, SlideAnalysis
-from src.chains.prompts import JsonH1AndGDPrompt
 from src.config.model_setup import EmbeddingConfig
 from src.config.navigator import Navigator
 from src.rag import BaseScorer, HyperbolicScorer, ScorerTypes
