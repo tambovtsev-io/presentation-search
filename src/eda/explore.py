@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Set
 
 import fitz  # PyMuPDF
 import pandas as pd
+import tiktoken
 
 from src.chains import PresentationAnalysis
 from src.config.navigator import Navigator
@@ -174,3 +175,9 @@ def calculate_image_tokens(width: int, height: int):
 def tokens2price(tokens: int, cost_per_1k_tokens: float = 0.00015):
     # Token prices: https://openai.com/api/pricing/
     return tokens / 1000 * cost_per_1k_tokens
+
+
+def count_tokens(text: str):
+    encoding = tiktoken.encoding_for_model("gpt-4o")
+    tokens = encoding.encode(text)
+    return len(tokens)

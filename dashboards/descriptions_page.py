@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from dash import Dash, Input, Output, dcc, html
 
 from dashboards.data_processing import extract_dataset_from_path
+from src.eda.explore import count_tokens
 
 
 def create_token_usage_scatter(df: pd.DataFrame) -> go.Figure:
@@ -34,12 +35,14 @@ def create_token_distribution(df: pd.DataFrame) -> go.Figure:
     df_with_dataset["dataset"] = df_with_dataset["pres_path"].apply(
         extract_dataset_from_path
     )
+    df_with_dataset["pres_title_short"] = df_with_dataset["pres_title"].str[:20] + "..."
 
     fig = px.box(
         df_with_dataset,
         y="completion_tokens",
         x="dataset",
         # title="Distribution of Completion Tokens",
+        hover_data="pres_title_short",
     )
     return fig
 
@@ -57,14 +60,16 @@ def create_chunk_types_comparison(df: pd.DataFrame) -> go.Figure:
 
     df_melted = pd.melt(
         df, value_vars=chunk_types, var_name="chunk_type", value_name="text"
+    ).assign(
+        length=lambda df_: df_["text"].str.len(),
+        n_tokens=lambda df_: df_["text"].apply(count_tokens),
     )
-    df_melted["length"] = df_melted["text"].str.len()
 
     # Create plot
     fig = px.box(
         df_melted,
         x="chunk_type",
-        y="length",
+        y="n_tokens",
         # title="Text Length Comparison by Chunk Type",
     )
 
@@ -149,7 +154,7 @@ def create_storage_validation(df: pd.DataFrame, trim_title=15) -> go.Figure:
         pd.DataFrame(validation_data)
         .assign(display_title=lambda df_: df_["presentation"].str[:trim_title])
         .sort_values(by=["n_failed", "n_missing"], ascending=True)
-        .reset_index(drop=True)
+        # .reset_index(drop=True)
     )
     # print(validation_df.head(10))
 
@@ -161,7 +166,7 @@ def create_storage_validation(df: pd.DataFrame, trim_title=15) -> go.Figure:
             symbol="circle",
             color="darkgreen",
             size=5,
-            hover_template="<b>%{y}</b><br>Page: %{x}<br>Status: Complete<br><extra></extra>",
+            # hover_template="<b>%{y}</b><br>Page: %{x}<br>Status: Complete<br><extra></extra>",
             custom_data=None,
         ),
         dict(
@@ -170,7 +175,7 @@ def create_storage_validation(df: pd.DataFrame, trim_title=15) -> go.Figure:
             symbol="diamond",
             color="orange",
             size=6,
-            hover_template="<b>%{y}</b><br>Page: %{x}<br>Missing: %{customdata}<br><extra></extra>",
+            # hover_template="<b>%{y}</b><br>Page: %{x}<br>Missing: %{customdata}<br><extra></extra>",
             custom_data="missing",
         ),
         dict(
@@ -179,7 +184,7 @@ def create_storage_validation(df: pd.DataFrame, trim_title=15) -> go.Figure:
             symbol="square",
             color="red",
             size=6,
-            hover_template="<b>%{y}</b><br>Page: %{x}<br>Failed: %{customdata}<br><extra></extra>",
+            # hover_template="<b>%{y}</b><br>Page: %{x}<br>Failed: %{customdata}<br><extra></extra>",
             custom_data="missing",
         ),
     ]
@@ -192,7 +197,7 @@ def create_storage_validation(df: pd.DataFrame, trim_title=15) -> go.Figure:
         fig.add_trace(
             go.Scatter(
                 x=marker["data"]["page"],
-                y=marker["data"]["presentation"].str[:15],
+                y=marker["data"]["display_title"],
                 mode="markers",
                 name=marker["name"],
                 marker=dict(
@@ -200,12 +205,12 @@ def create_storage_validation(df: pd.DataFrame, trim_title=15) -> go.Figure:
                     size=6,
                     color=marker["color"],
                 ),
-                hovertemplate=marker["hover_template"],
-                customdata=(
-                    marker["data"][marker["custom_data"]]
-                    if marker["custom_data"]
-                    else None
-                ),
+                # hovertemplate=marker["hover_template"],
+                # customdata=(
+                #     marker["data"][marker["custom_data"]]
+                #     if marker["custom_data"]
+                #     else None
+                # ),
             )
         )
 
@@ -216,7 +221,9 @@ def create_storage_validation(df: pd.DataFrame, trim_title=15) -> go.Figure:
         xaxis_title="Page Number",
         yaxis_title="Presentation",
         showlegend=True,
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=1.15, bgcolor="rgba(0,0,0,0)"),
+        legend=dict(
+            yanchor="top", y=0.99, xanchor="right", x=1.15, bgcolor="rgba(0,0,0,0)"
+        ),
         # Ensure integer ticks for page numbers
         xaxis=dict(tickmode="linear", tick0=0, dtick=20),
     )
