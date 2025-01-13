@@ -3,16 +3,13 @@ import logging
 import os
 from pathlib import Path
 from textwrap import dedent
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import gradio as gr
 import pandas as pd
-from gradio.components import Component
 from gradio_pdf import PDF
-from pydantic import BaseModel
-from pymupdf.mupdf import ll_pdf_annot_modification_date
 
-from src.config import Config, Navigator
+from src.config import Config
 from src.rag.storage import ChromaSlideStore, SearchResultPage, SearchResultPresentation
 
 logger = logging.getLogger(__name__)
@@ -66,7 +63,6 @@ def format_presentation_results(
     # Get best matching page
     best_slide = pres_result.best_slide
     pdf_path = Path(best_slide.pdf_path)
-    page_num = int(best_slide.page_num)
 
     page_nums = [s.page_num + 1 for s in pres_result.slides]
     page_scores = [s.best_score for s in pres_result.slides]
@@ -131,11 +127,11 @@ class RagInterface:
         with gr.Blocks() as app:
             # fmt: off
             gr.Markdown(dedent(
-            """\
-            # Presentation Search
-            - Presentations for search are available [at google-drive](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
-            - List of possible questions for testing is available [at google-sheets](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
-            """)
+                """\
+                # Presentation Search
+                - Presentations for search are available [at google-drive](https://drive.google.com/drive/folders/1IvUsxxtyyTuHdZff9szhd2OtIATRTcG4?usp=sharing)
+                - List of possible questions for testing is available [at google-sheets](https://docs.google.com/spreadsheets/d/1qWRF_o-RY1x-o-3z08iVb2akh0HS3ZNxVkZi6yoVsI4/edit?usp=sharing)
+                """)
             )
             # fmt: on
 
@@ -160,7 +156,7 @@ class RagInterface:
 
                         search_btn = gr.Button("Search", size="lg", scale=3)
 
-            examples = gr.Examples(
+            gr.Examples(
                 examples=[
                     "Презентация с картинкой единорога",
                     "В какой презентации был график с экономическими событиями?",
@@ -178,13 +174,10 @@ class RagInterface:
                 examples_per_page=15,
             )
 
-            # Adding results functionality
-            results = gr.State([])
-
             # Results container
             result_components = []
             for i in range(self.n_outputs):
-                with gr.Group(visible=True) as g:
+                with gr.Group(visible=True):
                     with gr.Tabs():
                         # Create 3 identical result tabs
                         with gr.Tab(f"Result {i+1}"):
@@ -198,7 +191,7 @@ class RagInterface:
                                     visible=False,
                                 )
 
-                        with gr.Tab(f"Details"):
+                        with gr.Tab("Details"):
                             # Results text
                             with gr.Column(variant="panel"):
                                 details_text = gr.Markdown(
@@ -222,7 +215,7 @@ class RagInterface:
                         pdf_path = pres_result.pdf_path
                         page = pres_result[0].page_num
 
-                        g = gr.Group(visible=True)
+                        gr.Group(visible=True)  # noqa F841, gradio things to remove
                         pdf = PDF(
                             value=str(pdf_path), starting_page=page + 1, visible=True
                         )
@@ -232,7 +225,7 @@ class RagInterface:
                         )
                         description = gr.Markdown(value=text, visible=True)
                     else:
-                        g = gr.Group(visible=False)
+                        gr.Group(visible=False)
                         pdf = PDF(visible=False)
                         certainty = gr.Markdown(visible=False)
                         description = gr.Markdown(visible=False)

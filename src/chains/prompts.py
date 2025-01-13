@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from textwrap import dedent
-from typing import Any, Dict, Optional, Type, TypeVar, Union
+from typing import Optional, Type, Union
 
 from langchain.output_parsers import PydanticOutputParser
 from langchain.prompts import ChatPromptTemplate
@@ -9,7 +9,6 @@ from langchain_core.output_parsers import BaseOutputParser, StrOutputParser
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
-
 
 
 class BasePrompt(ABC):
@@ -79,15 +78,20 @@ class BaseVisionPrompt(BasePrompt):
 
     def _create_template(self) -> ChatPromptTemplate:
         """Create vision-specific chat template"""
-        return ChatPromptTemplate.from_messages([
-            ("human", [
-                {"type": "text", "text": self._prompt_text},
-                {
-                    "type": "image_url",
-                    "image_url": "data:image/jpeg;base64,{image_base64}"
-                }
-            ])
-        ])
+        return ChatPromptTemplate.from_messages(
+            [
+                (
+                    "human",
+                    [
+                        {"type": "text", "text": self._prompt_text},
+                        {
+                            "type": "image_url",
+                            "image_url": "data:image/jpeg;base64,{image_base64}",
+                        },
+                    ],
+                )
+            ]
+        )
 
     def _get_parser(self) -> BaseOutputParser:
         """Get simple string parser by default"""
@@ -125,7 +129,7 @@ class BasePydanticVisionPrompt(BaseVisionPrompt):
 
     def parse(self, text: str) -> Optional[BaseModel]:
         """Parse output according to Pydantic schema"""
-        out = self._get_schema()() # Empty object for schema
+        out = self._get_schema()()  # Empty object for schema
         try:
             out = self._parser.parse(text)
         except Exception as e:
@@ -182,6 +186,7 @@ class JsonH1AndGDPrompt(BasePydanticVisionPrompt):
     ## Layout and Composition
     ```
     """
+
     class SlideDescription(BaseModel):
         """
         Slide Description Schema
@@ -189,6 +194,7 @@ class JsonH1AndGDPrompt(BasePydanticVisionPrompt):
         The properties are set to empty strings by default
         to handle failed parsing
         """
+
         class GeneralDescription(BaseModel):
             topic_overview: str = ""
             conclusions_and_insights: str = ""
@@ -205,7 +211,7 @@ class JsonH1AndGDPrompt(BasePydanticVisionPrompt):
     def _get_prompt_text(self) -> str:
         """Get prompt text"""
         return dedent(
-"""
+            """
 You are a presentation slide description agent. Your task is to provide a detailed description of the slide in a structured format. Analyze and describe both visual and textual elements according to the following structure. Provide the description in Russian language.
 
 Adapt the level of detail in your description based on slide complexity:
@@ -440,11 +446,13 @@ Example of a Slide With Table:
   }}
 }}
 ```
-""")
+"""
+        )
 
 
 class JsonH1AndGDPromptEng(BasePydanticVisionPrompt):
     """The copy of the above but in English"""
+
     class SlideDescription(BaseModel):
         class GeneralDescription(BaseModel):
             topic_overview: str
@@ -462,7 +470,7 @@ class JsonH1AndGDPromptEng(BasePydanticVisionPrompt):
     def _get_prompt_text(self) -> str:
         """Get prompt text"""
         return dedent(
-"""
+            """
 You are a presentation slide description agent. Your task is to provide a detailed description of the slide in a structured format. Analyze and describe both visual and textual elements according to the following structure. The description should be in English, while preserving Russian text elements from the slide with translations where appropriate.
 
 Adapt the level of detail in your description based on slide complexity:
@@ -693,4 +701,5 @@ Example of a Slide With Table:
   }}
 }}
 ```
-""")
+"""
+        )

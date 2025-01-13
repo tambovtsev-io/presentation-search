@@ -1,7 +1,7 @@
 from collections import Counter
 from math import ceil
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 import fitz  # PyMuPDF
 import pandas as pd
@@ -56,8 +56,8 @@ class PresentationMetrics:
 def parse_pdf_directory(
     root_dir: str | Path,
     topic_first: bool = True,
-    include_datasets: Optional[Set[str]] = None,
-    exclude_datasets: Optional[Set[str]] = None,
+    include_datasets: Optional[List[str]] = None,
+    exclude_datasets: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """Your existing parse_pdf_directory function with metrics integration."""
     if include_datasets and exclude_datasets:
@@ -109,7 +109,7 @@ def parse_pdf_directory(
                 str(unique_sizes) if len(unique_sizes) > 1 else ""
             )
 
-        except Exception as e:
+        except Exception:
             pdf_info.update(
                 dict(
                     num_pages=0,

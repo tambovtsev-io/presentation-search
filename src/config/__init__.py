@@ -1,3 +1,4 @@
+# flake8: noqa
 from src.config.output_formatting import (
     MultilineWrapper,
     display_chain_outputs

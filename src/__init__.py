@@ -1,3 +1,4 @@
+# flake8: noqa
 from src.processing import page2image, image2base64
 from src.config import (
     Config,

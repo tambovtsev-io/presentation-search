@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 from PIL import Image
 
 from src.chains.chain_funcs import get_param_or_default
-from src.chains.prompts import JsonH1AndGDPrompt, SimpleVisionPrompt
+from src.chains.prompts import SimpleVisionPrompt
 from src.config.navigator import Navigator
 from src.processing import image2base64, page2image
 

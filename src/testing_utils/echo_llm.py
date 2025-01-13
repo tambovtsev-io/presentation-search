@@ -1,5 +1,4 @@
-from typing import Any, List, Optional, Sequence
-from dataclasses import dataclass
+from typing import Any, List, Optional
 import time
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel

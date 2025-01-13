@@ -3,13 +3,12 @@ from textwrap import TextWrapper
 from typing import Any, Dict, List, Optional, Union
 
 import matplotlib.pyplot as plt
-from langchain.chains.base import Chain
 from pydantic import BaseModel
 
 from src.chains.chains import FindPdfChain, LoadPageChain, Page2ImageChain
-from src.rag.storage import SearchResult, SearchResultPage, ScoredChunk
 from src.chains.pipelines import PresentationAnalysis
 from src.config.navigator import Navigator
+from src.rag.storage import ScoredChunk, SearchResultPage
 
 
 class MultilineWrapper(TextWrapper):
@@ -220,10 +219,7 @@ def display_presentation_from_file(file_path: Union[str, Path], **kwargs) -> Non
 
 
 def display_slide_image(
-    pdf_path: Path,
-    page_num: int,
-    dpi: int = 150,
-    figsize: tuple = (10, 10)
+    pdf_path: Path, page_num: int, dpi: int = 150, figsize: tuple = (10, 10)
 ) -> None:
     """Display slide from PDF file
 
@@ -234,16 +230,9 @@ def display_slide_image(
         figsize: Figure size for matplotlib
     """
     # Load and convert page to image
-    chain =  (
-        FindPdfChain()
-        | LoadPageChain()
-        | Page2ImageChain(default_dpi=dpi)
-    )
+    chain = FindPdfChain() | LoadPageChain() | Page2ImageChain(default_dpi=dpi)
 
-    image = chain.invoke({
-        "pdf_path": pdf_path,
-        "page_num": page_num
-    })["image"]
+    image = chain.invoke({"pdf_path": pdf_path, "page_num": page_num})["image"]
 
     # Display with matplotlib
     fig, ax = plt.subplots(figsize=figsize)
@@ -257,7 +246,7 @@ def display_search_result(
     text_wrapper: Optional[MultilineWrapper] = None,
     display_image: bool = True,
     image_dpi: int = 150,
-    figsize: tuple = (10, 10)
+    figsize: tuple = (10, 10),
 ) -> None:
     """Display search result chunk
 
@@ -282,10 +271,7 @@ def display_search_result(
         print("-" * 80)
 
         display_slide_image(
-            pdf_path=pdf_path,
-            page_num=page_num,
-            dpi=image_dpi,
-            figsize=figsize
+            pdf_path=pdf_path, page_num=page_num, dpi=image_dpi, figsize=figsize
         )
 
     # Display chunk information
@@ -301,7 +287,7 @@ def display_search_result_page(
     display_image: bool = True,
     display_text: bool = True,
     image_dpi: int = 150,
-    figsize: tuple = (7, 7)
+    figsize: tuple = (7, 7),
 ) -> None:
     """Display search result with full slide context
 
@@ -326,10 +312,7 @@ def display_search_result_page(
         print("-" * 80)
 
         display_slide_image(
-            pdf_path=pdf_path,
-            page_num=page_num,
-            dpi=image_dpi,
-            figsize=figsize
+            pdf_path=pdf_path, page_num=page_num, dpi=image_dpi, figsize=figsize
         )
 
     if not display_text:

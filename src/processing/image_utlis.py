@@ -1,6 +1,8 @@
-from PIL import Image
 import base64
 import io
+
+from PIL import Image
+
 
 def image2base64(pil_image: Image.Image):
     buffered = io.BytesIO()

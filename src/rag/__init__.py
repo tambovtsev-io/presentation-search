@@ -1,3 +1,4 @@
+# flake8: noqa
 from src.rag.score import (
     BaseScorer,
     ExponentialScorer,

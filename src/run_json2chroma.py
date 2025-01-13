@@ -2,7 +2,7 @@ import asyncio
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import fire
 from langchain_core.embeddings import Embeddings
@@ -137,7 +137,7 @@ def process_presentations(
 
         logger.info("Processing completed successfully")
 
-    except Exception as e:
+    except Exception:
         logger.error("Processing failed", exc_info=True)
 
 
@@ -189,7 +189,7 @@ async def process_presentations_async(
 
         logger.info("Processing completed successfully")
 
-    except Exception as e:
+    except Exception:
         logger.error("Processing failed", exc_info=True)
 
 
@@ -263,7 +263,7 @@ class ChromaCLI:
             )
         except KeyboardInterrupt:
             logger.warning("Processing interrupted by user")
-        except Exception as e:
+        except Exception:
             logger.error("Processing failed with error", exc_info=True)
 
 

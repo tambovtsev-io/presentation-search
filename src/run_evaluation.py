@@ -1,34 +1,19 @@
-import asyncio
 import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 import fire
-import pandas as pd
 from langchain_openai import ChatOpenAI
 
-from src.config import Config, Provider, load_spreadsheet
+from src.config import Config, Provider
 from src.config.logging import setup_logging
-from src.eval.eval_mlflow import (
-    BaseMetric,
-    MlflowConfig,
-    PageMatch,
-    PresentationMatch,
-    RAGEvaluatorMlflow,
-)
-from src.eval.evaluate import LangsmithConfig, RAGEvaluatorLangsmith
+from src.eval.eval_mlflow import MlflowConfig, RAGEvaluatorMlflow
 from src.rag import ChromaSlideStore, PresentationRetriever
 from src.rag.preprocess import RegexQueryPreprocessor
-from src.rag.score import (
-    BaseScorer,
-    ExponentialScorer,
-    HyperbolicScorer,
-    ScorerFactory,
-    ScorerPresets,
-)
+from src.rag.score import BaseScorer, ScorerFactory, ScorerPresets
 from src.rag.storage import LLMPresentationRetriever
 
 logger = logging.getLogger(__name__)
@@ -139,10 +124,16 @@ class EvaluationCLI:
         # Initialize components
         llm = self.config.model_config.get_llm(provider, model_name, temperature)
         embeddings = self.config.embedding_config.get_embeddings(provider)
-        query_preprocessor = {"regex": RegexQueryPreprocessor()}.get(preprocessing) if preprocessing else None
+        query_preprocessor = (
+            {"regex": RegexQueryPreprocessor()}.get(preprocessing)
+            if preprocessing
+            else None
+        )
 
         storage = ChromaSlideStore(
-            collection_name=collection, embedding_model=embeddings, query_preprocessor=query_preprocessor
+            collection_name=collection,
+            embedding_model=embeddings,
+            query_preprocessor=query_preprocessor,
         )
 
         logger.info(f"Initialized storage collection: {collection}")
@@ -233,8 +224,8 @@ class EvaluationCLI:
             components.retriever.n_pages = n_pages
 
             # Setup evaluation config
-            db_path = self.config.navigator.eval_runs / "mlruns.db"
-            artifacts_path = self.config.navigator.eval_artifacts
+            # db_path = self.config.navigator.eval_runs / "mlruns.db"
+            # artifacts_path = self.config.navigator.eval_artifacts
 
             eval_config = MlflowConfig(
                 experiment_name=experiment,
@@ -275,63 +266,8 @@ class EvaluationCLI:
             evaluator.run_evaluation(questions_df)
             logger.info("MLflow evaluation completed successfully")
 
-        except Exception as e:
+        except Exception:
             logger.error("MLflow evaluation failed", exc_info=True)
-            raise
-
-    def langsmith(
-        self,
-        retriever: str = "basic",
-        provider: str = "vsegpt",
-        model_name: Optional[str] = None,
-        collection: str = "pres1",
-        dataset: str = "RAG_test",
-        experiment_prefix: Optional[str] = None,
-        scorers: List[str] = ["default"],
-        n_questions: int = -1,
-        max_concurrent: int = 5,
-        temperature: float = 0.2,
-    ) -> None:
-        """Run LangSmith-based evaluation pipeline"""
-        try:
-            # Initialize components
-            components = self._initialize_components(
-                retriever=retriever,
-                provider=provider,
-                model_name=model_name,
-                collection=collection,
-                scorers=scorers,
-                temperature=temperature,
-            )
-
-            # Configure evaluation
-            langsmith_config = LangsmithConfig(
-                dataset_name=dataset,
-                experiment_prefix=experiment_prefix,
-                retriever=components.retriever,
-                scorers=components.scorer_instances,
-                max_concurrency=max_concurrent,
-            )
-
-            evaluator = RAGEvaluatorLangsmith(
-                config=langsmith_config,
-                llm=components.llm,
-            )
-
-            # Load and process questions
-            sheet_id = os.getenv("BENCHMARK_SPREADSHEET_ID")
-            questions_df = evaluator.load_questions_from_sheet(sheet_id)
-            logger.info(f"Loaded {len(questions_df)} questions")
-
-            if n_questions > 0:
-                questions_df = questions_df.sample(n_questions).reset_index()
-                logger.info(f"Selected {len(questions_df)} random questions")
-
-            evaluator.run_evaluation()
-            logger.info("LangSmith evaluation completed successfully")
-
-        except Exception as e:
-            logger.error("LangSmith evaluation failed", exc_info=True)
             raise
 
 

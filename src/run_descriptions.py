@@ -1,8 +1,7 @@
 import asyncio
 import logging
-from enum import Enum
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 
 import fire
 
@@ -144,7 +143,7 @@ class PipelineCLI:
             logger.info("Processing completed successfully")
         except KeyboardInterrupt:
             logger.warning("Processing interrupted by user")
-        except Exception as e:
+        except Exception:
             logger.error("Processing failed with error", exc_info=True)
 
 

@@ -5,7 +5,6 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
-from langchain_core.language_models.base import BaseLanguageModel
 from langchain_openai import ChatOpenAI
 from langchain_openai.embeddings import OpenAIEmbeddings
 
@@ -100,7 +99,7 @@ class ModelConfig:
             logger.info(f"Using OpenAI model: {model_name}")
             return self.load_openai(model=model_name, temperature=temperature)
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
+            raise ValueError(f"Unknown model type: {model_name}")
 
 
 class EmbeddingConfig:
@@ -143,6 +142,4 @@ class EmbeddingConfig:
             logger.info(f"Using OpenAI model: {model_name}")
             return self.load_openai(model=model_name)
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
-
-
+            raise ValueError(f"Unknown model type: {model_name}")

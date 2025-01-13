@@ -1,9 +1,9 @@
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Set
+from typing import Optional
 
-from dotenv import load_dotenv
 import nltk
+from dotenv import load_dotenv
 from nltk.corpus import stopwords
 
 
@@ -123,7 +123,6 @@ class RegexQueryPreprocessor:
 
 
 if __name__ == "__main__":
-    from typing import List, Union
 
     import fire
 

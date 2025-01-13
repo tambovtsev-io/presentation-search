@@ -3,7 +3,7 @@ import logging
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from textwrap import dedent
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import chromadb
 import pandas as pd
@@ -1402,7 +1402,7 @@ async def create_slides_database_async(
     Returns:
         Configured ChromaSlideStore instance
     """
-    from asyncio import create_task, gather
+    # from asyncio import create_task, gather
 
     # Initialize store
     store = ChromaSlideStore(
