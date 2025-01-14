@@ -9,6 +9,7 @@
 Автор: Илья Тамбовцев [t.me/ilchos](https://t.me/ilchos)
 
 Попробовать можно тут: [huggingface/presentation-search](https://huggingface.co/spaces/redmelonberry/presentation-search)
+*Без VPN презентации могут не отображаться.*
 
 Видео с демонстрацией: [cсылка на YouTube](http://www.youtube.com/watch?v=5LPl3MBXxzo)
 
